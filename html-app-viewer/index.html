@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#f8fafc">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="HTML App">
+  <title>HTML App Viewer</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#f6f7f9; color:#152135; }
+    * { box-sizing: border-box; }
+    html, body { width:100%; min-height:100%; margin:0; }
+    body { -webkit-text-size-adjust:100%; }
+    button { font:inherit; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    button:disabled { opacity:.5; cursor:default; }
+    #setup { min-height:100dvh; display:flex; flex-direction:column; align-items:center; padding: max(calc(env(safe-area-inset-top) + 25px),38px) 18px max(28px, env(safe-area-inset-bottom)); }
+    .wrap { width:min(100%,475px); }
+    .brand { display:flex; align-items:center; gap:11px; margin:0 0 39px; font-size:15px; font-weight:700; letter-spacing:-.2px; }
+    .brand-icon { display:grid;place-items:center;width:37px;height:37px;border-radius:11px;background:#17233c;color:#fff; }
+    .overline { font-size:11px; color:#708197; font-weight:750; letter-spacing:1.3px; text-transform:uppercase; margin-bottom:13px; }
+    h1 { font-size:34px; letter-spacing:-1.35px; line-height:1.08; margin:0 0 11px; font-weight:760; }
+    .intro { margin:0 0 26px; color:#64748b; font-size:15px; line-height:1.55; }
+    .panel { padding:21px; background:#fff; border:1px solid #e2e8f0; border-radius:21px; box-shadow:0 8px 35px rgba(31,50,80,.045); }
+    .file-symbol { display:grid;place-items:center; width:60px;height:60px;border-radius:17px;background:#eff4ff;color:#2a63d7;margin:4px 0 17px; }
+    .main-label { font-size:17px; font-weight:740; margin:0 0 6px; letter-spacing:-.3px; overflow-wrap:anywhere; }
+    .secondary { color:#75849a; font-size:13px; line-height:1.55; margin:0; }
+    .primary { display:block;width:100%;min-height:49px;margin-top:21px;padding:13px 16px;border:0;border-radius:12px;background:#215de4;color:white;font-weight:680;font-size:15px; }
+    .primary:active { background:#184fc7; }
+    .secondary-button { display:block;width:100%;min-height:43px;margin-top:10px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;color:#34445b;font-size:14px;font-weight:610; }
+    #ready { margin-top:17px; }
+    .status { display:flex;gap:9px;align-items:start;color:#176942;font-size:13px;font-weight:660;line-height:1.5; }
+    .status.warning { color:#986113; }
+    .instructions { background:#f8fafc;border-radius:13px;margin:17px 0 0;padding:14px 15px; }
+    .instructions strong { font-size:13px; }
+    .instructions ol { padding-left:19px; margin:10px 0 0; color:#506075; font-size:13px; line-height:1.9; }
+    .help { margin:20px 2px 0; color:#8995a8;font-size:12px;line-height:1.65; }
+    .bottom { margin-top:30px;font-size:12px;color:#a1aab6;text-align:center; }
+    .error { margin-top:12px;border-radius:10px;background:#fff1f2;color:#9f1239;padding:11px 12px;font-size:13px;line-height:1.4; }
+    .hidden { display:none !important; }
+    #installed-setup { display:none;position:fixed;inset:0;min-height:100dvh;background:#f6f7f9;z-index:9;align-items:center;justify-content:center;padding:calc(env(safe-area-inset-top) + 20px) 22px calc(env(safe-area-inset-bottom) + 20px); }
+    #installed-setup .panel { width:min(100%,410px); }
+    #installed-setup h2 {font-size:23px;letter-spacing:-.5px;margin:0 0 9px;}
+    #installed-setup p {color:#64748b;font-size:14px;line-height:1.6;margin:0;}
+    .loader { position:fixed;inset:0;background:white;z-index:8;display:none;place-items:center;color:#93a1b3;font-size:13px; }
+    .spin { width:23px;height:23px;border:2px solid #dbe4ef;border-top-color:#3465cf;border-radius:50%;animation:spin 800ms linear infinite;margin:0 auto 12px; }
+    @keyframes spin {to{transform:rotate(360deg)}}
+    html.standalone #setup {display:none;}
+    html.standalone .loader {display:grid;}
+    @media (prefers-reduced-motion: reduce) {.spin{animation:none}}
+  </style>
+  <script>
+    // Keep the loader, rather than the viewer's setup interface, visible while a Home Screen app starts.
+    if (window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)) {
+      document.documentElement.classList.add('standalone');
+    }
+  </script>
+</head>
+<body>
+  <main id="setup">
+    <div class="wrap">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4m8-8 4 4-4 4M14 5l-4 14"/></svg>
+        </div>
+        HTML App Viewer
+      </div>
+      <div class="overline">GitHub Pages · iPhone</div>
+      <h1>Make an HTML file<br>its own web app.</h1>
+      <p class="intro">Choose an HTML file, then add this page to your Home Screen. The installed icon opens straight into your file.</p>
+      <section class="panel">
+        <div class="file-symbol" aria-hidden="true">
+          <svg width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13l-2 2 2 2m8-4 2 2-2 2m-5-5-2 6"/></svg>
+        </div>
+        <div class="main-label" id="file-label">No HTML selected</div>
+        <p class="secondary" id="file-desc">Choose a self-contained .html or .htm file from Files on your iPhone.</p>
+        <button class="primary" id="choose">Choose HTML file</button>
+        <input id="file-input" type="file" accept=".html,.htm,text/html" class="hidden">
+        <div class="error hidden" id="error" role="alert"></div>
+        <div class="hidden" id="ready">
+          <div class="status" id="ready-status"><span aria-hidden="true">✓</span><span id="ready-message">Ready to install.</span></div>
+          <div class="instructions">
+            <strong>Install this HTML as an app</strong>
+            <ol>
+              <li>Tap Safari's <b>Share</b> button.</li>
+              <li>Choose <b>Add to Home Screen</b>.</li>
+              <li>Leave <b>Open as Web App</b> on, then tap <b>Add</b>.</li>
+              <li>Open the new icon. It will open your HTML directly.</li>
+            </ol>
+          </div>
+          <button class="secondary-button" id="another">Prepare a different HTML app</button>
+        </div>
+      </section>
+      <p class="help">Each prepared app gets a different address. Install one before preparing the next. Your HTML is handled on your device; it isn't uploaded to GitHub.</p>
+      <div class="bottom">For HTML apps you trust · No account or server needed</div>
+    </div>
+  </main>
+
+  <!-- This is the ONLY visible interface on an installed app that has not received its HTML yet. -->
+  <section id="installed-setup" aria-label="First-time HTML file setup">
+    <div class="panel">
+      <div class="file-symbol" aria-hidden="true">
+        <svg width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 18v2h14v-2"/></svg>
+      </div>
+      <h2>Choose your HTML file</h2>
+      <p id="installed-explanation">This app needs its HTML file once. Choose the file and it will be stored here for future launches.</p>
+      <button class="primary" id="installed-choose">Choose HTML file</button>
+      <input id="installed-input" type="file" accept=".html,.htm,text/html" class="hidden">
+      <div class="error hidden" id="installed-error" role="alert"></div>
+    </div>
+  </section>
+  <div class="loader" id="loader" aria-live="polite"><div><div class="spin"></div>Opening HTML app…</div></div>
+
+  <script>
+  (() => {
+    'use strict';
+    const COOKIE_PREFIX = 'hav1_';
+    const CHUNK_SIZE = 2600;
+    const MAX_CHUNKS = 28;
+    const MAX_BYTES = CHUNK_SIZE * MAX_CHUNKS;
+    const DB_NAME = 'html-app-viewer-2026';
+    const STORE = 'apps';
+    const $ = id => document.getElementById(id);
+    const standalone = document.documentElement.classList.contains('standalone');
+    let urlId = readId();
+    const te = new TextEncoder();
+    const td = new TextDecoder();
+
+    function readId() {
+      const id = new URLSearchParams(location.search).get('app');
+      return id && /^[a-z0-9]{12,32}$/.test(id) ? id : null;
+    }
+    function newId() {
+      const bytes = new Uint8Array(12);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+    function setPageName(name) {
+      const clean = (name || 'HTML App').replace(/\.(html?|HTML?)$/i, '').trim().slice(0, 60) || 'HTML App';
+      document.title = clean;
+      const meta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+      if (meta) meta.setAttribute('content', clean);
+    }
+    function setCookie(name, value, age = 60 * 60 * 24 * 7) {
+      const secure = location.protocol === 'https:' ? '; Secure' : '';
+      document.cookie = name + '=' + value + '; Path=/; Max-Age=' + age + '; SameSite=Lax' + secure;
+    }
+    function getCookies() {
+      const result = {};
+      for (const entry of document.cookie.split('; ')) {
+        if (!entry) continue;
+        const eq = entry.indexOf('=');
+        if (eq >= 0) result[entry.slice(0, eq)] = entry.slice(eq + 1);
+      }
+      return result;
+    }
+    function clearStagedCookies() {
+      for (const key of Object.keys(getCookies())) {
+        if (key.startsWith(COOKIE_PREFIX)) setCookie(key, '', 0);
+      }
+    }
+    function bytesToBase64(bytes) {
+      let output = '';
+      for (let i = 0; i < bytes.length; i += 12000) {
+        output += String.fromCharCode(...bytes.subarray(i, i + 12000));
+      }
+      return btoa(output).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+    function base64ToBytes(input) {
+      const base64 = input.replace(/-/g, '+').replace(/_/g, '/');
+      const decoded = atob(base64);
+      const bytes = new Uint8Array(decoded.length);
+      for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
+      return bytes;
+    }
+    async function encodeHtml(html) {
+      const bytes = te.encode(html);
+      if (typeof CompressionStream !== 'undefined') {
+        const compressed = await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+        return { mode:'gzip', value:bytesToBase64(new Uint8Array(compressed)) };
+      }
+      return { mode:'plain', value:bytesToBase64(bytes) };
+    }
+    async function decodeHtml(value, mode) {
+      const bytes = base64ToBytes(value);
+      if (mode === 'gzip') {
+        if (typeof DecompressionStream === 'undefined') throw new Error('This device cannot decompress the saved HTML.');
+        const expanded = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+        return td.decode(expanded);
+      }
+      if (mode !== 'plain') throw new Error('Unknown HTML encoding.');
+      return td.decode(bytes);
+    }
+    function metaKey(id) { return COOKIE_PREFIX + id + '_meta'; }
+    function chunkKey(id, i) { return COOKIE_PREFIX + id + '_' + i; }
+    function getStaged(id) {
+      const cookies = getCookies();
+      let key = id ? (cookies[metaKey(id)] ? metaKey(id) : null) : null;
+      // Only fall back to the one copied package if iOS dropped the URL query.
+      if (!id) key = Object.keys(cookies).find(k => k.startsWith(COOKIE_PREFIX) && k.endsWith('_meta')) || null;
+      if (!key) return null;
+      try {
+        const meta = JSON.parse(decodeURIComponent(cookies[key]));
+        if (!meta || !/^[a-z0-9]{12,32}$/.test(meta.id)) return null;
+        return { meta, cookies };
+      } catch { return null; }
+    }
+    function packCookies(id, name, packed) {
+      clearStagedCookies(); // Old Home Screen apps have isolated snapshots of their cookies.
+      const count = Math.ceil(packed.value.length / CHUNK_SIZE);
+      if (count > MAX_CHUNKS) return { auto:false, reason:'large' };
+      for (let i = 0; i < count; i++) {
+        setCookie(chunkKey(id, i), packed.value.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE));
+      }
+      const meta = { v:1, id, name, mode:packed.mode, count };
+      setCookie(metaKey(id), encodeURIComponent(JSON.stringify(meta)));
+      const cookies = getCookies();
+      const valid = cookies[metaKey(id)] && Array.from({length:count}, (_,i) => chunkKey(id,i)).every(k => !!cookies[k]);
+      if (!valid) {
+        clearStagedCookies();
+        return { auto:false, reason:'cookies' };
+      }
+      return { auto:true };
+    }
+    async function unpackCookies(stage) {
+      const {meta,cookies} = stage;
+      if (meta.v !== 1 || !Number.isInteger(meta.count) || meta.count < 1 || meta.count > MAX_CHUNKS) throw new Error('Invalid saved file data.');
+      let joined = '';
+      for (let i=0; i<meta.count; i++) {
+        const c = cookies[chunkKey(meta.id,i)];
+        if (!c) throw new Error('Some file data did not transfer.');
+        joined += c;
+      }
+      return await decodeHtml(joined,meta.mode);
+    }
+    async function openDB() {
+      return await new Promise((resolve,reject) => {
+        const req = indexedDB.open(DB_NAME,1);
+        req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE,{keyPath:'id'}); };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error || new Error('Unable to open local storage.'));
+      });
+    }
+    async function storeApp(app) {
+      const db = await openDB();
+      try {
+        await new Promise((resolve,reject) => {
+          const tx = db.transaction(STORE,'readwrite');
+          tx.objectStore(STORE).put(app);
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error || new Error('Could not save app.'));
+          tx.onabort = () => reject(tx.error || new Error('Storage was interrupted.'));
+        });
+      } finally { db.close(); }
+    }
+    async function fetchApp(id) {
+      const db = await openDB();
+      try {
+        return await new Promise((resolve,reject) => {
+          const tx = db.transaction(STORE,'readonly');
+          const req = id ? tx.objectStore(STORE).get(id) : tx.objectStore(STORE).getAll();
+          req.onsuccess = () => resolve(id ? req.result : (req.result.length === 1 ? req.result[0] : null));
+          req.onerror = () => reject(req.error || new Error('Could not read app.'));
+        });
+      } finally { db.close(); }
+    }
+    function showHtml(html,name) {
+      // Replace the entire document, not an iframe: the saved HTML becomes the page itself.
+      // The bootstrap URL and its app ID remain unchanged for the next launch.
+      document.open();
+      document.write(html);
+      document.close();
+    }
+    function showInstalledPicker(message) {
+      $('loader').style.display = 'none';
+      $('installed-setup').style.display = 'flex';
+      if (message) $('installed-explanation').textContent = message;
+    }
+    function showError(message, installed) {
+      const target = $(installed ? 'installed-error' : 'error');
+      target.textContent = message;
+      target.classList.remove('hidden');
+    }
+    function clearError(installed) { $(installed ? 'installed-error' : 'error').classList.add('hidden'); }
+    function isHtmlFile(file) {
+      return file && /\.html?$/i.test(file.name);
+    }
+    async function prepSafariFile(file) {
+      clearError(false);
+      if (!isHtmlFile(file)) { showError('Please choose a .html or .htm file.',false); return; }
+      const button = $('choose');
+      button.disabled = true;
+      button.textContent = 'Preparing HTML…';
+      try {
+        const html = await file.text();
+        const id = newId();
+        const packed = await encodeHtml(html);
+        const outcome = packCookies(id,file.name,packed);
+        urlId = id;
+        const url = new URL(location.href);
+        url.searchParams.set('app',id);
+        url.hash = '';
+        history.replaceState(null,'',url.href);
+        setPageName(file.name);
+        $('file-label').textContent = file.name;
+        $('file-desc').textContent = (file.size / 1024).toFixed(1) + ' KB · Unique Home Screen app link prepared';
+        const status = $('ready-status');
+        const message = $('ready-message');
+        status.classList.toggle('warning',!outcome.auto);
+        if (outcome.auto) {
+          message.textContent = 'Ready. The file should transfer when you add this page to your Home Screen.';
+        } else {
+          message.textContent = outcome.reason === 'large'
+            ? 'This file is too large for automatic transfer. You will choose it once more inside the installed app.'
+            : 'Safari could not store the transfer data. You will choose the file once more inside the installed app.';
+        }
+        $('ready').classList.remove('hidden');
+      } catch(err) {
+        showError('Could not prepare the file: ' + (err?.message || String(err)),false);
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Choose a different HTML file';
+      }
+    }
+    async function installLocalFile(file) {
+      clearError(true);
+      if (!isHtmlFile(file)) { showError('Choose an .html or .htm file.',true); return; }
+      const button = $('installed-choose');
+      button.disabled = true;
+      button.textContent = 'Saving HTML…';
+      try {
+        const html = await file.text();
+        const id = urlId || getStaged(null)?.meta.id || newId();
+        // Saving *before* displaying ensures the next launch works without selecting again.
+        await storeApp({id,name:file.name,html,savedAt:Date.now()});
+        if (!urlId) {
+          const url = new URL(location.href);
+          url.searchParams.set('app',id);
+          history.replaceState(null,'',url.href);
+          urlId = id;
+        }
+        showHtml(html,file.name);
+      } catch(err) {
+        showError('The file could not be saved: ' + (err?.message || String(err)),true);
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Choose HTML file';
+      }
+    }
+    async function bootInstalled() {
+      try {
+        const existing = await fetchApp(urlId);
+        if (existing?.html !== undefined) { showHtml(existing.html,existing.name); return; }
+      } catch(err) { console.warn('Local app storage could not be opened:',err); }
+      const staged = getStaged(urlId);
+      if (staged) {
+        try {
+          const html = await unpackCookies(staged);
+          await storeApp({id:staged.meta.id,name:staged.meta.name,html,savedAt:Date.now()});
+          if (!urlId) {
+            const url = new URL(location.href);
+            url.searchParams.set('app',staged.meta.id);
+            history.replaceState(null,'',url.href);
+            urlId = staged.meta.id;
+          }
+          clearStagedCookies();
+          showHtml(html,staged.meta.name);
+          return;
+        } catch(err) {
+          console.warn('HTML transfer did not complete:',err);
+          showInstalledPicker('The HTML could not be transferred automatically. Choose the same file once; this app will save it for future launches.');
+          return;
+        }
+      }
+      showInstalledPicker('Choose your HTML file once. It will be saved locally and will open directly the next time you launch this app.');
+    }
+    function restoreSafariPreparation() {
+      const stage = getStaged(urlId);
+      if (!stage || !urlId || stage.meta.id !== urlId) return;
+      setPageName(stage.meta.name);
+      $('file-label').textContent = stage.meta.name;
+      $('file-desc').textContent = 'Previously prepared for your Home Screen';
+      $('ready-message').textContent = 'Ready. Add this page to your Home Screen before preparing another file.';
+      $('ready').classList.remove('hidden');
+      $('choose').textContent = 'Choose a different HTML file';
+    }
+    async function registerOffline() {
+      if ('serviceWorker' in navigator && location.protocol === 'https:') {
+        try { await navigator.serviceWorker.register('./sw.js'); }
+        catch (err) { console.warn('Optional offline cache not available:',err); }
+      }
+    }
+
+    $('choose').addEventListener('click',() => $('file-input').click());
+    $('file-input').addEventListener('change',e => { const file=e.target.files?.[0]; if(file) prepSafariFile(file); e.target.value=''; });
+    $('installed-choose').addEventListener('click',() => $('installed-input').click());
+    $('installed-input').addEventListener('change',e => { const file=e.target.files?.[0]; if(file) installLocalFile(file); e.target.value=''; });
+    $('another').addEventListener('click',() => {
+      const url = new URL(location.href); url.searchParams.delete('app'); url.hash=''; location.assign(url.href);
+    });
+    if (standalone) bootInstalled(); else restoreSafariPreparation();
+    registerOffline();
+  })();
+  </script>
+</body>
+</html>
