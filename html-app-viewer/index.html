@@ -198,7 +198,7 @@
     let dockNames = null, dockRequest = null, dockChoice = null, dockImage = null;
 
     function dockUrl(name) {
-      return DOCK_API + '/' + DOCK_PREFIX + ':' + encodeURIComponent(name) + '.svg';
+      return DOCK_API + '/' + DOCK_PREFIX + '/' + encodeURIComponent(name) + '.svg';
     }
     function dockTitle(name) {
       return name.split('-').map(v=>v[0]?.toUpperCase() + v.slice(1)).join(' ');
