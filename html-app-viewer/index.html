@@ -159,7 +159,9 @@
     // Keep the loader, rather than the viewer's setup interface, visible while a Home Screen app starts.
     // A permanent Creator shortcut may also be added with "Open as Web App".
     // It must still show the Creator, not the installed HTML-file loader.
-    const creatorEntry = new URLSearchParams(location.search).get('creator') === '1';
+    const creatorEntry = new URLSearchParams(location.search).get('creator') === '1' ||
+      (!new URLSearchParams(location.search).has('app') &&
+       /\/creator\.html$/i.test(location.pathname));
     if (!creatorEntry && (window.navigator.standalone === true ||
         (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches))) {
       document.documentElement.classList.add('standalone');
@@ -272,7 +274,10 @@
     const $ = id => document.getElementById(id);
     const standalone = document.documentElement.classList.contains('standalone');
     let urlId = readId();
-    const creatorMode = !urlId && new URLSearchParams(location.search).get('creator') === '1';
+    const creatorMode = !urlId && (
+      new URLSearchParams(location.search).get('creator') === '1' ||
+      /\/creator\.html$/i.test(location.pathname)
+    );
     const te = new TextEncoder();
     const td = new TextDecoder();
 
@@ -295,6 +300,7 @@
       // Static identity for the Home Screen Creator shortcut. App metadata is
       // set separately once Prepare Web App produces a new ?app= URL.
       setPageName('HTML App Creator');
+      $('app-name').value='';
       const canvas=document.createElement('canvas');
       canvas.width=180; canvas.height=180;
       const ctx=canvas.getContext('2d');
@@ -1555,15 +1561,18 @@
     $('installed-choose').addEventListener('click',() => $('installed-input').click());
     $('installed-input').addEventListener('change',e => { const file=e.target.files?.[0]; if(file) installLocalFile(file); e.target.value=''; });
     $('another').addEventListener('click',() => {
-      const url = new URL(location.href);
-      url.searchParams.delete('app');
-      url.searchParams.set('creator','1');
-      url.hash='';
+      // Always return to the permanent Creator address, not to a generated
+      // app's ?app= URL or a Safari history entry.
+      const url = new URL('./creator.html',location.href);
       location.assign(url.href);
     });
     if (creatorMode) {
       applyCreatorBookmarkIdentity();
-      // Do not restore any previously prepared HTML, app name or icon.
+      // Do not restore a previously prepared HTML, app name or icon.
+      // A Safari back/forward-cache restoration should also open fresh.
+      window.addEventListener('pageshow',event=>{
+        if(event.persisted && !readId())location.reload();
+      });
     } else if (standalone) {
       bootInstalled();
     } else {
