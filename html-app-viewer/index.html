@@ -170,6 +170,24 @@
     #creator-icon-toggle{display:none;width:100%;padding:11px 7px 6px;margin:10px 0 0;border:0;background:transparent;color:#8391a5;font-size:12px;text-align:center;cursor:pointer}
     body.creator-active #creator-icon-toggle{display:block}
     #creator-icon-toggle:focus-visible{outline:2px solid #2563eb;outline-offset:2px;border-radius:7px}
+    /* Icon-first setup. HTML is selected only inside the installed app. */
+    .icon-select-card{display:flex;align-items:center;gap:16px;width:100%;min-height:116px;
+      padding:15px;background:#f3f7ff;border:1.5px solid #a8c2f6;border-radius:17px;
+      text-align:left;color:#183665;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .icon-select-card:active{background:#e7f0ff}
+    .icon-select-card:focus-visible{outline:3px solid #245fe1;outline-offset:2px}
+    .icon-select-card .dock-thumb{width:86px;height:86px;flex:0 0 86px;border-radius:18px;
+      background:#fff;border:1px solid #dce6f7;font-size:11px}
+    .icon-select-card .dock-thumb img{width:100%;height:100%;object-fit:contain}
+    .icon-select-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+    .icon-select-text strong{display:block;font-size:18px;font-weight:740;line-height:1.2}
+    .icon-select-text small{display:block;color:#667994;font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+    .icon-select-chevron{flex:none;color:#5173ac;font-size:29px;font-weight:350}
+    #setup .panel{padding:17px}
+    #setup .app-name-label{margin-top:19px}
+    .install-file-note{margin:14px 2px 1px;color:#8191a7;font-size:12px;line-height:1.45}
+    #setup #prepare{margin-top:18px}
+    @media(max-width:360px){.icon-select-card{gap:11px;padding:11px}.icon-select-card .dock-thumb{width:74px;height:74px;flex-basis:74px}.icon-select-text strong{font-size:16px}}
   </style>
   <script>
     // Keep the loader, rather than the viewer's setup interface, visible while a Home Screen app starts.
@@ -203,23 +221,18 @@
         </div>
         <button type="button" class="dock-select" id="creator-icon-open">Choose</button>
       </div>
-      <p class="intro">Choose HTML, an icon, or both. You can install the app first and select its HTML afterwards.</p>
       <section class="panel">
-        <div class="file-symbol" aria-hidden="true">
-          <svg width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13l-2 2 2 2m8-4 2 2-2 2m-5-5-2 6"/></svg>
-        </div>
-        <div class="main-label" id="file-label">No HTML selected</div>
-        <p class="secondary" id="file-desc">Choose a self-contained .html or .htm file from Files on your iPhone.</p>
-        <button class="primary" id="choose" type="button">Choose HTML file (optional)</button>
-        <input id="file-input" type="file" accept=".html,.htm,text/html" class="hidden">
-        <p class="option-hint">Optional — you can add the HTML after installation.</p>
-        <div class="dock-row">
-          <div class="dock-thumb" id="dock-preview" aria-hidden="true">Default</div>
-          <div class="dock-copy"><strong>Home Screen icon (optional)</strong><small id="dock-name">Safari default</small></div>
-          <button type="button" class="dock-select" id="dock-open">Choose icon</button>
-        </div>
+        <button type="button" class="icon-select-card" id="dock-open" aria-label="Choose a Home Screen app icon">
+          <span class="dock-thumb" id="dock-preview" aria-hidden="true">Default</span>
+          <span class="icon-select-text">
+            <strong>Choose app icon</strong>
+            <small id="dock-name">Tap to browse icon libraries</small>
+          </span>
+          <span class="icon-select-chevron" aria-hidden="true">›</span>
+        </button>
         <label class="app-name-label" for="app-name">App name</label>
         <input id="app-name" class="app-name-input" type="text" maxlength="60" placeholder="HTML App" autocomplete="off">
+        <p class="install-file-note">You'll choose the HTML file when you open your new Home Screen app.</p>
         <button class="primary" id="prepare" type="button">Prepare Web App</button>
         <div class="error hidden" id="error" role="alert"></div>
         <div class="hidden" id="ready">
@@ -230,7 +243,7 @@
               <li>Tap Safari's <b>Share</b> button.</li>
               <li>Choose <b>Add to Home Screen</b>.</li>
               <li>Leave <b>Open as Web App</b> on, then tap <b>Add</b>.</li>
-              <li>Open the new icon. Your HTML opens directly, or you can choose it then.</li>
+              <li>Open your new app and choose its HTML file once.</li>
             </ol>
           </div>
           <button class="secondary-button" id="another">Prepare a different HTML app</button>
@@ -428,7 +441,8 @@
           JSON.stringify({mode:iconBgMode,color:iconBgColor}));
       }catch(error){console.warn('Icon export settings not saved:',error);}
     }
-    let chosenHtml = null, chosenFileName = null, chosenFileSize = 0;
+    // New apps install first and select their HTML on first launch.
+    // Earlier generated ?app= links with cookie-staged HTML still work.
 
     // Only previewed icons are embedded into the viewer's local Cache Storage.
     // The installed Home Screen app does not receive this catalogue or cache.
@@ -1508,71 +1522,17 @@
       $('ready').classList.add('hidden');
       clearError(false);
     }
-    async function selectSafariFile(file) {
-      clearError(false);
-      if(!isHtmlFile(file)){
-        showError('Please choose a .html or .htm file.',false);
-        return;
-      }
-      const button=$('choose');
-      button.disabled=true;
-      button.textContent='Reading HTML…';
-      try{
-        const html=await file.text();
-        chosenHtml=html;
-        chosenFileName=file.name;
-        chosenFileSize=file.size;
-        $('file-label').textContent=file.name;
-        $('file-desc').textContent=(file.size/1024).toFixed(1)+' KB · Selected for installation';
-        $('choose').textContent='Change selected HTML';
-        const input=$('app-name');
-        const fileDefault=file.name.replace(/\.html?$/i,'');
-        if(!input.value.trim()||input.value.trim()==='HTML App'){
-          input.value=fileDefault;
-        }
-        hidePreparedStatus();
-      }catch(error){
-        showError('Could not read HTML: '+(error?.message||String(error)),false);
-      }finally{
-        button.disabled=false;
-        button.textContent=chosenFileName?'Change selected HTML':'Choose HTML file (optional)';
-      }
-    }
     async function prepareSafariApp() {
       clearError(false);
-      const name=$('app-name').value.trim().slice(0,60)||
-        (chosenFileName ? chosenFileName.replace(/\.html?$/i,'') : 'HTML App');
-      // Reuse the staged HTML if the setup page was reopened and only its
-      // icon or app name was changed. Never silently turn that into an empty app.
-      if(chosenHtml===null && urlId){
-        const staged=getStaged(urlId);
-        if(staged?.meta.id===urlId){
-          try{
-            chosenHtml=await unpackCookies(staged);
-            chosenFileName=staged.meta.name;
-          }catch(error){
-            showError('The previously selected HTML needs to be chosen again.',false);
-            return;
-          }
-        }
-      }
-      if(chosenHtml===null && !dockImage){
-        showError('Choose an HTML file or an icon before preparing the app.',false);
-        return;
-      }
+      const name=$('app-name').value.trim().slice(0,60)||'HTML App';
       const button=$('prepare');
       button.disabled=true;
       button.textContent='Preparing…';
-      try{
+      try {
+        // HTML is intentionally not transferred from Safari. The installed
+        // app's existing first-launch picker saves the HTML to IndexedDB.
         const id=urlId||newId();
-        let outcome={auto:false,reason:'none'};
-        if(chosenHtml!==null){
-          const encoded=await encodeHtml(chosenHtml);
-          outcome=packCookies(id,chosenFileName||name,encoded);
-        }else{
-          // No file is intentionally staged. The installed app opens its picker.
-          clearStagedCookies();
-        }
+        clearStagedCookies();
         urlId=id;
         const url=new URL(location.href);
         url.searchParams.delete('creator');
@@ -1581,30 +1541,21 @@
         history.replaceState(null,'',url.href);
         setPageName(name);
         document.body.classList.remove('creator-active');
-        // Reapply the manifest after setting the app ID and title.
+        // Apply the selected app icon after leaving Creator mode; never
+        // overwrite the permanent Creator bookmark icon beforehand.
         saveDockChoice(dockChoice,dockImage);
-        try{
-          localStorage.setItem('hav_prepared_'+id,JSON.stringify({
-            name,filename:chosenFileName,hasHtml:chosenHtml!==null
-          }));
+        try {
+          localStorage.setItem('hav_prepared_'+id,
+            JSON.stringify({name,filename:null,hasHtml:false}));
         }catch(error){console.warn('Prepared app details could not be cached:',error);}
         $('app-name').value=name;
-        const status=$('ready-status');
-        const message=$('ready-message');
-        status.classList.toggle('warning',chosenHtml!==null&&!outcome.auto);
-        if(chosenHtml===null){
-          message.textContent='Ready. Add to Home Screen, then open the new icon to choose its HTML file.';
-        }else if(outcome.auto){
-          message.textContent='Ready. Your HTML should transfer when you add this page to your Home Screen.';
-        }else{
-          message.textContent=outcome.reason==='large'
-            ? 'Ready. This HTML is too large to transfer automatically. Choose it once inside the installed app.'
-            : 'Ready. Safari could not stage the HTML. Choose it once inside the installed app.';
-        }
+        $('ready-status').classList.remove('warning');
+        $('ready-message').textContent=
+          'Ready. Add to Home Screen, then open your app to choose its HTML file.';
         $('ready').classList.remove('hidden');
-      }catch(error){
+      }catch(error) {
         showError('Could not prepare app: '+(error?.message||String(error)),false);
-      }finally{
+      }finally {
         button.disabled=false;
         button.textContent='Prepare Web App';
       }
@@ -1669,24 +1620,15 @@
       catch(error){console.warn('Prepared setup could not be read:',error);}
       const stage=getStaged(urlId);
       if(!record && (!stage||stage.meta.id!==urlId))return;
-      const name=record?.name || stage?.meta.name || 'HTML App';
-      const fileName=record?.filename || (stage ? stage.meta.name : null);
+      const name=record?.name||stage?.meta.name||'HTML App';
       setPageName(name);
       $('app-name').value=name;
-      chosenFileName=fileName;
-      if(fileName){
-        $('file-label').textContent=fileName;
-        $('file-desc').textContent='Previously prepared for this Home Screen app';
-        $('choose').textContent='Change selected HTML';
-      } else {
-        $('file-label').textContent='HTML not selected';
-        $('file-desc').textContent='Choose your HTML after installing this app';
-      }
-      // The staged HTML remains in its cookies; no need to duplicate it in memory.
       restoreDockChoice(urlId);
-      $('ready-message').textContent=record?.hasHtml===false
-        ? 'Ready. Add to Home Screen and select your HTML on first launch.'
-        : 'Ready. Add this page to your Home Screen before preparing another app.';
+      // Legacy prepared links may still contain automatically staged HTML;
+      // their installed-app path is unchanged.
+      $('ready-message').textContent=stage || record?.hasHtml===true
+        ? 'Ready. Add to Home Screen; previously selected HTML may transfer automatically.'
+        : 'Ready. Add to Home Screen, then choose HTML on first launch.';
       $('ready').classList.remove('hidden');
     }
 
@@ -1784,12 +1726,6 @@
     });
     $('app-name').addEventListener('input',hidePreparedStatus);
     $('prepare').addEventListener('click',prepareSafariApp);
-    $('choose').addEventListener('click',()=> $('file-input').click());
-    $('file-input').addEventListener('change',event=>{
-      const file=event.target.files?.[0];
-      if(file)selectSafariFile(file);
-      event.target.value='';
-    });
     $('installed-choose').addEventListener('click',() => $('installed-input').click());
     $('installed-input').addEventListener('change',e => { const file=e.target.files?.[0]; if(file) installLocalFile(file); e.target.value=''; });
     $('another').addEventListener('click',() => {
