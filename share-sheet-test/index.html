@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f8fafc">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="HTML Share Test">
+<meta name="description" content="Test the iOS Share Sheet and install a local HTML file as a Home Screen web app.">
+<title>HTML Share Test</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#162338;background:#f8fafc;color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;width:100%;-webkit-text-size-adjust:100%}
+body{min-height:100dvh;display:grid;place-items:center;padding:calc(env(safe-area-inset-top,0px) + 25px) 20px calc(env(safe-area-inset-bottom,0px) + 25px)}
+main{width:min(100%,440px)}
+.label{display:inline-flex;align-items:center;gap:8px;color:#426184;font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+.dot{height:8px;width:8px;border-radius:100%;background:#438ee1}
+h1{font-size:32px;line-height:1.13;letter-spacing:-.9px;margin:15px 0 12px}
+.intro{font-size:15px;color:#64748b;line-height:1.58;margin:0 0 25px}
+.card{padding:23px 20px;background:#fff;border:1px solid #e2e8f0;border-radius:19px;box-shadow:0 10px 40px #20365a0a}
+.card h2{font-size:18px;letter-spacing:-.3px;margin:0 0 10px}
+.card p{font-size:14px;line-height:1.6;color:#627186;margin:0 0 15px}
+button{font:inherit;cursor:pointer}
+.primary{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:50px;padding:12px 16px;border:0;border-radius:12px;background:#2563eb;color:#fff;font-size:15px;font-weight:650}
+.primary:disabled{opacity:.6}
+.secondary{margin-top:14px;padding:13px 14px;background:#f3f6fa;border-radius:11px;color:#52647c;font-size:13px;line-height:1.55}
+.secondary strong{color:#2c425e}
+.help{font-size:13px;line-height:1.65;color:#718197;margin:20px 3px 0}
+#status{font-size:12px;color:#52647c;line-height:1.5;margin:12px 3px 0;min-height:0}
+#status:empty{display:none}
+#file{display:none}
+#safari,#installed{display:none}
+html.safari #safari,html.standalone #installed{display:block}
+</style>
+<script>
+(function(){
+  var installed=navigator.standalone===true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  document.documentElement.classList.add(installed?'standalone':'safari');
+})();
+</script>
+</head>
+<body>
+<main id="safari">
+  <span class="label"><span class="dot"></span> iPhone experiment</span>
+  <h1>Share Sheet test</h1>
+  <p class="intro">Try opening the iOS Share Sheet directly from a webpage, then install this separate test as a Home Screen web app.</p>
+  <section class="card">
+    <h2>Step 1 — Try the Share Sheet</h2>
+    <p>Press the button to open the native iPhone sharing options for this page.</p>
+    <button type="button" class="primary" id="share">
+      <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3m-5 5 5-5 5 5"/><rect x="4" y="11" width="16" height="10" rx="2"/></svg>
+      Open iOS Share Sheet
+    </button>
+    <div id="status" role="status"></div>
+    <div class="secondary"><strong>Can't see Add to Home Screen?</strong> This website-triggered Share Sheet may not offer installation. Instead, use Safari's own Share button, then choose <strong>Add to Home Screen</strong> and enable <strong>Open as Web App</strong>.</div>
+  </section>
+  <p class="help">Step 2 — Launch the new Home Screen icon. There you'll see <strong>Load HTML</strong> so you can choose a file from Files. Your existing HTML viewer is unaffected.</p>
+</main>
+
+<main id="installed">
+  <span class="label"><span class="dot"></span> Home Screen app</span>
+  <h1 id="installedTitle">Load an HTML file</h1>
+  <p class="intro" id="installedIntro">Choose a self-contained HTML file from Files. It will be stored on this device and reopen automatically from this Home Screen icon.</p>
+  <section class="card">
+    <h2>Step 3 — Select the HTML</h2>
+    <p>This happens after installation, so there is no need to transfer a file from Safari.</p>
+    <button type="button" class="primary" id="load">Load HTML</button>
+    <input type="file" id="file" accept=".html,.htm,text/html">
+    <div id="installedStatus" role="status"></div>
+  </section>
+</main>
+
+<script>
+(function(){
+ 'use strict';
+ var standalone=document.documentElement.classList.contains('standalone');
+ var dbName='html-share-sheet-experiment-v1';
+ var storeName='files';
+ var entryName='current';
+
+ function report(id,message){document.getElementById(id).textContent=message || '';}
+
+ function openDB(){
+   return new Promise(function(resolve,reject){
+     var request=indexedDB.open(dbName,1);
+     request.onupgradeneeded=function(){
+       if(!request.result.objectStoreNames.contains(storeName)){
+         request.result.createObjectStore(storeName);
+       }
+     };
+     request.onsuccess=function(){resolve(request.result);};
+     request.onerror=function(){reject(request.error || new Error('Local storage could not be opened.'));};
+   });
+ }
+ async function readSaved(){
+   var db=await openDB();
+   try{
+     return await new Promise(function(resolve,reject){
+       var tx=db.transaction(storeName,'readonly');
+       var request=tx.objectStore(storeName).get(entryName);
+       request.onsuccess=function(){resolve(request.result || null);};
+       request.onerror=function(){reject(request.error || new Error('Unable to read saved HTML.'));};
+     });
+   }finally{db.close();}
+ }
+ async function saveFile(value){
+   var db=await openDB();
+   try{
+     await new Promise(function(resolve,reject){
+       var tx=db.transaction(storeName,'readwrite');
+       tx.objectStore(storeName).put(value,entryName);
+       tx.oncomplete=function(){resolve();};
+       tx.onerror=function(){reject(tx.error || new Error('Unable to save HTML.'));};
+       tx.onabort=function(){reject(tx.error || new Error('Saving was interrupted.'));};
+     });
+   }finally{db.close();}
+ }
+ function showHTML(html){
+   // Match the main viewer's full-document behaviour rather than using an iframe.
+   document.open();
+   document.write(html);
+   document.close();
+ }
+ async function boot(){
+   try{
+     var saved=await readSaved();
+     if(saved && typeof saved.html==='string'){
+       showHTML(saved.html);
+     }
+   }catch(error){
+     report('installedStatus','Could not read saved HTML: '+(error.message || String(error)));
+   }
+ }
+ if(standalone){
+   var fileInput=document.getElementById('file');
+   var load=document.getElementById('load');
+   load.addEventListener('click',function(){fileInput.click();});
+   fileInput.addEventListener('change',async function(){
+     var file=fileInput.files && fileInput.files[0];
+     fileInput.value='';
+     if(!file)return;
+     if(!/\.html?$/i.test(file.name)){
+       report('installedStatus','Please choose an .html or .htm file.');return;
+     }
+     load.disabled=true;
+     report('installedStatus','Saving '+file.name+'…');
+     try{
+       var html=await file.text();
+       await saveFile({name:file.name,html:html,savedAt:Date.now()});
+       showHTML(html);
+     }catch(error){
+       report('installedStatus','Could not save file: '+(error.message || String(error)));
+       load.disabled=false;
+     }
+   });
+   boot();
+ }else{
+   document.getElementById('share').addEventListener('click',async function(){
+     var url=new URL(location.href);
+     url.hash='';
+     // The call is inside the click handler to preserve iOS user activation.
+     if(typeof navigator.share!=='function'){
+       report('status','This browser does not support opening the native Share Sheet from JavaScript. Use Safari Share instead.');
+       return;
+     }
+     report('status','');
+     try{
+       await navigator.share({title:'HTML Share Test',url:url.toString()});
+       report('status','Share Sheet closed. If it did not include Add to Home Screen, use Safari’s own Share button.');
+     }catch(error){
+       if(error.name!=='AbortError'){
+         report('status','Could not open the Share Sheet: '+(error.message || String(error)));
+       }
+     }
+   });
+ }
+ if('serviceWorker' in navigator && location.protocol==='https:'){
+   navigator.serviceWorker.register('./sw.js').catch(function(error){
+     console.warn('Offline shell unavailable:',error);
+   });
+ }
+})();
+</script>
+</body>
+</html>
