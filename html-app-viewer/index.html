@@ -675,7 +675,7 @@
     function checkDockScroll() {
       const grid=$('dock-grid');
       if(dockRendering || !$('dock-dialog').classList.contains('open'))return;
-      const count=grid.querySelectorAll('button[data-name]').length;
+      const count=grid.querySelectorAll('button[data-name]:not(.default-tile)').length;
       if(count>=dockTotalMatches)return;
       if(grid.scrollHeight-grid.scrollTop-grid.clientHeight>520)return;
       dockVisible+=96;
@@ -703,7 +703,7 @@
         if(!any)break;
       }
       const existingCount=append ?
-        grid.querySelectorAll('button[data-name]').length : 0;
+        grid.querySelectorAll('button[data-name]:not(.default-tile)').length : 0;
       if(!append){
         if(previewObserver)previewObserver.disconnect();
         grid.replaceChildren();
