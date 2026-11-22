@@ -125,8 +125,7 @@
     .dock-actions{padding:10px 14px calc(env(safe-area-inset-bottom,0px) + 12px);gap:8px;flex:none;background:#fff}
     .dock-more-row{flex:none;padding:4px 12px 8px;border-top:1px solid #f0f3f7;background:#fff}
     .dock-more{width:100%}
-    .dock-item.unavailable{opacity:.4}
-    .dock-item.unavailable img{visibility:hidden}
+    .dock-item.unavailable{display:none!important}
     .dock-item:focus-visible{outline:2px solid #2563eb}
     @media(min-width:700px){.dock-grid{grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px;padding:12px 25px}.dock-item img{width:76px;height:76px}.dock-item span{font-size:11px}.dock-head,.dock-actions{padding-left:25px;padding-right:25px}}
     .dock-filters{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:8px;padding:11px 15px 8px;flex:none}
@@ -325,6 +324,62 @@
     const queuedPreviews = [];
     let activePreviewRequests = 0;
     let previewObserver = null;
+    // Failed previews stay hidden for 15 minutes instead of reappearing as
+    // empty tiles whenever the search, library or category changes.
+    const FAILED_ICON_STORE = 'hav_failed_icon_previews_v1';
+    const FAILED_ICON_TTL = 15 * 60 * 1000;
+    const failedIconPreviews = new Map();
+    try {
+      const saved = JSON.parse(localStorage.getItem(FAILED_ICON_STORE)||'[]');
+      if(Array.isArray(saved)) {
+        for(const pair of saved){
+          if(!Array.isArray(pair) || pair.length!==2)continue;
+          const [key,expires]=pair;
+          if(typeof key==='string' && typeof expires==='number' &&
+             expires>Date.now() && /^[a-z0-9-]+:[a-z0-9-]+$/.test(key))
+            failedIconPreviews.set(key,expires);
+        }
+      }
+    }catch(error){console.warn('Previously failed icons could not be read:',error);}
+    function failedIconKey(choice){return choice.prefix+':'+choice.name;}
+    function iconFailedRecently(choice) {
+      const key=failedIconKey(choice);
+      const expiry=failedIconPreviews.get(key)||0;
+      if(expiry>Date.now())return true;
+      if(expiry)failedIconPreviews.delete(key);
+      return false;
+    }
+    let dockRenderedCount=0;
+    let dockWorkingCount=0;
+    let dockFailedCount=0;
+    let dockAutoFillBudget=4;
+    function markIconFailed(choice,button) {
+      if(!button.isConnected)return;
+      const key=failedIconKey(choice);
+      failedIconPreviews.set(key,Date.now()+FAILED_ICON_TTL);
+      try{
+        // Keep the cache bounded on devices with limited Safari storage.
+        const entries=[...failedIconPreviews].slice(-2500);
+        localStorage.setItem(FAILED_ICON_STORE,JSON.stringify(entries));
+      }catch(error){console.warn('Failed icon list not saved:',error);}
+      dockFailedCount++;
+      if(previewObserver){
+        const img=button.querySelector('img');
+        if(img)previewObserver.unobserve(img);
+      }
+      button.remove();
+      updateDockIconCount();
+      requestAnimationFrame(checkDockScroll);
+    }
+    function updateDockIconCount(){
+      const loaded=$('dock-grid').querySelectorAll('.dock-item.loaded').length;
+      const missing=dockFailedCount;
+      const count=$('dock-info');
+      if(!count)return;
+      const scope=dockPrefix==='all'?'All libraries':ICON_STYLES[dockPrefix]?.name||'';
+      const suffix=missing?' · '+missing+' unavailable hidden':'';
+      count.textContent=loaded+' loaded · '+scope+suffix;
+    }
 
     function dockUrls(prefix,name) {
       const style=ICON_STYLES[prefix];
@@ -386,28 +441,32 @@
       }
     }
     function loadPreview(img,button,choice) {
+      if(iconFailedRecently(choice)) {
+        markIconFailed(choice,button);
+        return;
+      }
       enqueuePreview(async()=>{
         if(!img.isConnected)return;
         try{
           const svg=await embeddedIconSvg(choice);
           if(!img.isConnected)return;
           const url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
-          img.onload=()=>{URL.revokeObjectURL(url);img.style.visibility='visible';};
+          img.onload=()=>{
+            URL.revokeObjectURL(url);
+            if(!button.isConnected)return;
+            img.style.visibility='visible';
+            button.classList.add('loaded');
+            dockWorkingCount++;
+            updateDockIconCount();
+            requestAnimationFrame(checkDockScroll);
+          };
           img.onerror=()=>{
             URL.revokeObjectURL(url);
-            if(img.isConnected){
-              button.classList.add('unavailable');
-              button.disabled=true;
-              button.title='This icon is not available in this style';
-            }
+            markIconFailed(choice,button);
           };
           img.src=url;
         }catch(error){
-          if(img.isConnected){
-            button.classList.add('unavailable');
-            button.disabled=true;
-            button.title='This icon is not available in this style';
-          }
+          markIconFailed(choice,button);
         }
       });
     }
@@ -427,7 +486,8 @@
       }
       img.dataset.iconPrefix=choice.prefix;
       img.dataset.iconName=choice.name;
-      previewObserver.observe(img);
+      if(iconFailedRecently(choice))markIconFailed(choice,button);
+      else previewObserver.observe(img);
     }
     function dockTitle(name) {
       return name.split('-').map(v=>v[0]?.toUpperCase()+v.slice(1)).join(' ');
@@ -675,9 +735,12 @@
     function checkDockScroll() {
       const grid=$('dock-grid');
       if(dockRendering || !$('dock-dialog').classList.contains('open'))return;
-      const count=grid.querySelectorAll('button[data-name]:not(.default-tile)').length;
-      if(count>=dockTotalMatches)return;
+      if(dockRenderedCount>=dockTotalMatches)return;
       if(grid.scrollHeight-grid.scrollTop-grid.clientHeight>520)return;
+      // Limit unprompted catch-up when entire categories are unavailable.
+      // A real user scroll supplies another budget for subsequent batches.
+      if(dockAutoFillBudget<=0)return;
+      dockAutoFillBudget--;
       dockVisible+=96;
       renderDockMatches(true);
     }
@@ -702,9 +765,12 @@
         }
         if(!any)break;
       }
-      const existingCount=append ?
-        grid.querySelectorAll('button[data-name]:not(.default-tile)').length : 0;
+      const existingCount=append ? dockRenderedCount : 0;
       if(!append){
+        dockRenderedCount=0;
+        dockWorkingCount=0;
+        dockFailedCount=0;
+        dockAutoFillBudget=4;
         if(previewObserver)previewObserver.disconnect();
         grid.replaceChildren();
         // Keep the default icon as a selectable tile instead of a footer button.
@@ -726,7 +792,12 @@
       }
       const fragment=document.createDocumentFragment();
       const fresh=shown.slice(existingCount);
+      dockRenderedCount=shown.length;
       for(const item of fresh){
+        if(iconFailedRecently(item)){
+          dockFailedCount++;
+          continue;
+        }
         const button=document.createElement('button');
         button.type='button';
         const selected=pendingDockChoice?.prefix===item.prefix &&
@@ -771,9 +842,9 @@
         : dockPrefix==='twemoji'?'Twemoji: CC BY 4.0'
         : dockPrefix==='fluent-emoji-flat'?'Fluent Emoji: MIT':'With Icons: MIT';
       const loadedStyles=allStyles.filter(style=>availableCatalogue(style)).length;
-      $('dock-info').textContent=shown.length+' / '+total+' icons'+
-        (dockPrefix==='all'?' · All libraries':' · '+ICON_STYLES[dockPrefix].name)+
-        (loadedStyles<allStyles.length?' · Loading…':'');
+      updateDockIconCount();
+      if(loadedStyles<allStyles.length)
+        $('dock-info').textContent+=' · Loading catalogues…';
       syncDockConfirm();
       dockRendering=false;
       // If a category has fewer tiles than the screen can hold, fetch more
@@ -1419,7 +1490,10 @@
       $('dock-grid').scrollTop=0;
       renderDockMatches();
     });
-    $('dock-grid').addEventListener('scroll',checkDockScroll,{passive:true});
+    $('dock-grid').addEventListener('scroll',()=>{
+      dockAutoFillBudget=4;
+      checkDockScroll();
+    },{passive:true});
     $('dock-grid').addEventListener('click',event=>{
       const button=event.target.closest('button[data-name]');
       if(!button||button.disabled)return;
