@@ -5,6 +5,8 @@ const SHELL_URL=new URL('./index.html',self.location.href).href;
 const CREATOR_URL=new URL('./creator.html',self.location.href).href;
 const SHELL_PATH=new URL(SHELL_URL).pathname;
 const CREATOR_PATH=new URL(CREATOR_URL).pathname;
+const ICON_ASSET_PATH=new URL('./icon-sets/',self.location.href).pathname;
+const ICON_ASSET_CACHE='html-home-app-viewer-local-icons-v1';
 const ROOT_PATH=new URL('./',self.location.href).pathname;
 
 self.addEventListener('install',event=>{
@@ -32,6 +34,26 @@ self.addEventListener('fetch',event=>{
   const request=event.request;
   const url=new URL(request.url);
   if(request.method!=='GET'||url.origin!==self.location.origin)return;
+  // Icons are hosted on the same site. Cache only the files actually viewed,
+  // not the entire 50MB library, and serve them on subsequent launches.
+  if(url.pathname.startsWith(ICON_ASSET_PATH)&&url.pathname.endsWith('.json')){
+    event.respondWith((async()=>{
+      const cache=await caches.open(ICON_ASSET_CACHE);
+      const cached=await cache.match(request);
+      if(cached)return cached;
+      try{
+        const response=await fetch(request);
+        if(response.ok){
+          const copy=response.clone();
+          event.waitUntil(cache.put(request,copy).catch(()=>{}));
+        }
+        return response;
+      }catch(error){
+        return (await cache.match(request))||Response.error();
+      }
+    })());
+    return;
+  }
   const isShell=url.pathname===SHELL_PATH||url.pathname===ROOT_PATH;
   const isCreator=url.pathname===CREATOR_PATH;
   // The creator.html bootstrap fetches index.html through fetch(), not a
