@@ -87,6 +87,48 @@
     #dock-remove{background:#fff;color:#64748b}
     #dock-use{background:#2563eb;color:#fff;border-color:#2563eb;flex:1}
     @media(max-width:350px){.dock-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+    /* Compact installer. The icon catalogue is a separate full-screen workspace. */
+    #setup{padding:max(calc(env(safe-area-inset-top) + 16px),28px) 15px max(env(safe-area-inset-bottom),18px)}
+    .wrap{width:min(100%,480px)}
+    .brand{margin-bottom:12px;font-size:14px}
+    .brand-icon{width:29px;height:29px;border-radius:8px}
+    .brand-icon svg{width:16px;height:16px}
+    .overline,.intro,.help,.bottom{display:none}
+    h1{font-size:24px;letter-spacing:-.7px;line-height:1.2;margin:2px 0 17px}
+    .panel{padding:17px}
+    .file-symbol{display:none}
+    .primary{margin-top:12px;min-height:44px}
+    .main-label{font-size:14px;margin-bottom:3px}
+    .option-hint{margin-top:6px;font-size:11px}
+    .dock-row{margin-top:15px;margin-bottom:10px;padding:8px}
+    .dock-thumb{width:44px;height:44px;border-radius:11px}
+    .app-name-label{margin-top:11px}
+    #prepare{margin-top:16px}
+    .instructions{margin-top:12px;padding:11px 12px}
+    .instructions ol{margin:5px 0 0}
+    #dock-dialog{inset:0;background:#fff;display:none;padding:0;height:100%;height:100dvh;align-items:stretch;justify-content:stretch;overflow:hidden}
+    #dock-dialog.open{display:flex}
+    .dock-panel{width:100%;max-width:none;height:100%;max-height:none;border-radius:0;box-shadow:none;overflow:hidden;min-height:0}
+    .dock-head{padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 8px;min-height:60px;flex:none;border-bottom:1px solid #edf1f5}
+    .dock-head h2{font-size:18px}
+    .dock-close{width:37px;min-width:37px}
+    .dock-library{width:calc(100% - 30px);margin:11px 15px 8px;height:42px;min-height:42px}
+    .dock-input{margin:0 15px 7px;min-height:43px;flex:none}
+    .dock-hint{padding:0 15px 5px;font-size:11px}
+    #dock-license{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .dock-grid{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;
+      align-content:start;grid-template-columns:repeat(auto-fill,minmax(65px,1fr));
+      gap:7px;padding:7px 12px 16px}
+    .dock-item{border-radius:11px;gap:4px;padding:7px 2px 6px}
+    .dock-item img{width:min(100%,59px);height:59px}
+    .dock-item span{font-size:9px}
+    .dock-actions{padding:10px 14px calc(env(safe-area-inset-bottom,0px) + 12px);gap:8px;flex:none;background:#fff}
+    .dock-more-row{flex:none;padding:4px 12px 8px;border-top:1px solid #f0f3f7;background:#fff}
+    .dock-more{width:100%}
+    .dock-item.unavailable{opacity:.4}
+    .dock-item.unavailable img{visibility:hidden}
+    .dock-item:focus-visible{outline:2px solid #2563eb}
+    @media(min-width:700px){.dock-grid{grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px;padding:12px 25px}.dock-item img{width:76px;height:76px}.dock-item span{font-size:11px}.dock-head,.dock-actions{padding-left:25px;padding-right:25px}}
   </style>
   <script>
     // Keep the loader, rather than the viewer's setup interface, visible while a Home Screen app starts.
@@ -105,7 +147,7 @@
         HTML App Viewer
       </div>
       <div class="overline">GitHub Pages · iPhone</div>
-      <h1>Turn an HTML file<br>into a Home Screen app.</h1>
+      <h1>Prepare Home Screen app</h1>
       <p class="intro">Choose HTML, an icon, or both. You can install the app first and select its HTML afterwards.</p>
       <section class="panel">
         <div class="file-symbol" aria-hidden="true">
@@ -115,7 +157,7 @@
         <p class="secondary" id="file-desc">Choose a self-contained .html or .htm file from Files on your iPhone.</p>
         <button class="primary" id="choose" type="button">Choose HTML file (optional)</button>
         <input id="file-input" type="file" accept=".html,.htm,text/html" class="hidden">
-        <p class="option-hint">Or skip this step and choose your HTML when the Home Screen app opens.</p>
+        <p class="option-hint">Optional — you can add the HTML after installation.</p>
         <div class="dock-row">
           <div class="dock-thumb" id="dock-preview" aria-hidden="true">Default</div>
           <div class="dock-copy"><strong>Home Screen icon (optional)</strong><small id="dock-name">Safari default</small></div>
@@ -139,8 +181,7 @@
           <button class="secondary-button" id="another">Prepare a different HTML app</button>
         </div>
       </section>
-      <p class="help">Each prepared app gets a different address. Install one before preparing the next. Your HTML is handled on your device; it isn't uploaded to GitHub.</p>
-      <div class="bottom">For HTML apps you trust · No account or server needed</div>
+
     </div>
   </main>
 
@@ -162,7 +203,7 @@
         </optgroup>
       </select>
       <input id="dock-search" class="dock-input" type="search" placeholder="Search e.g. camera, folder, code" autocomplete="off" aria-label="Search icons">
-      <div class="dock-hint" id="dock-info">Free icon collections; internet is required to preview them.</div>
+      <div class="dock-hint" id="dock-info">Icons previously viewed can be available offline.</div>
       <div class="dock-hint" id="dock-license" style="padding-bottom:7px"></div>
       <div class="dock-grid" id="dock-grid" aria-live="polite"></div>
       <div class="dock-more-row"><button type="button" class="dock-more" id="dock-more">Load more icons</button></div>
