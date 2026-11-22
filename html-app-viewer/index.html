@@ -129,6 +129,12 @@
     .dock-item.unavailable img{visibility:hidden}
     .dock-item:focus-visible{outline:2px solid #2563eb}
     @media(min-width:700px){.dock-grid{grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px;padding:12px 25px}.dock-item img{width:76px;height:76px}.dock-item span{font-size:11px}.dock-head,.dock-actions{padding-left:25px;padding-right:25px}}
+    .dock-filters{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:8px;padding:11px 15px 8px;flex:none}
+    .dock-filters .dock-library,.dock-filters .dock-category{width:100%;min-width:0;min-height:42px;height:42px;margin:0;border:1px solid #d5deea;border-radius:10px;background:#fff;padding:8px 9px;font:inherit;font-size:13px;color:#23364d}
+    .dock-filters select:disabled{color:#9ba7b8}
+    .dock-item .dock-style-name{display:block;font-size:9px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+    .dock-item.selected .dock-style-name{color:#2358be}
+    @media(min-width:700px){.dock-filters{padding-left:25px;padding-right:25px}}
   </style>
   <script>
     // Keep the loader, rather than the viewer's setup interface, visible while a Home Screen app starts.
@@ -188,8 +194,10 @@
   <section id="dock-dialog" role="dialog" aria-modal="true" aria-labelledby="dock-title" aria-hidden="true">
     <div class="dock-panel">
       <div class="dock-head"><h2 id="dock-title">Choose App Icon</h2><button type="button" id="dock-close" class="dock-close" aria-label="Close icon picker">×</button></div>
+      <div class="dock-filters">
       <select id="dock-library" class="dock-library" aria-label="Icon style or library">
-        <optgroup label="With Icons — 1,000 designs per style">
+        <option value="all">All libraries &amp; styles</option>
+        <optgroup label="With Icons — multiple visual styles">
           <option value="withicons-dock">Dock — glossy app icons</option>
           <option value="withicons-bento">Bento — coloured tiles</option>
           <option value="withicons-suite">Suite — modern app icons</option>
@@ -202,6 +210,10 @@
           <option value="twemoji">Twemoji — colourful</option>
         </optgroup>
       </select>
+      <select id="dock-category" class="dock-category" aria-label="Filter icons by category">
+        <option value="">All categories</option>
+      </select>
+      </div>
       <input id="dock-search" class="dock-input" type="search" placeholder="Search e.g. camera, folder, code" autocomplete="off" aria-label="Search icons">
       <div class="dock-hint" id="dock-info">Icons previously viewed can be available offline.</div>
       <div class="dock-hint" id="dock-license" style="padding-bottom:7px"></div>
@@ -282,6 +294,7 @@
       'chart-bar','video-camera','music-note','cloud','notebook','calculator','wallet',
       'file-code','monitor','palette','database','download','upload','bell','rocket'
     ];
+    // Catalogue values hold names and source-defined category membership.
     const dockCatalogues = new Map();
     const dockRequests = new Map();
     let dockPrefix = 'withicons-dock';
@@ -402,6 +415,37 @@
     function dockTitle(name) {
       return name.split('-').map(v=>v[0]?.toUpperCase()+v.slice(1)).join(' ');
     }
+    function categoryKey(label) {
+      return String(label).trim().toLowerCase().replace(/\s+/g,' ');
+    }
+    function styleScope() {
+      return dockPrefix==='all' ? Object.keys(ICON_STYLES) : [dockPrefix];
+    }
+    function cataloguePrefix(style) {
+      return ICON_STYLES[style]?.prefix;
+    }
+    function availableCatalogue(style) {
+      return dockCatalogues.get(cataloguePrefix(style))||null;
+    }
+    function updateCategoryOptions() {
+      const select=$('dock-category');
+      const original=select.value;
+      const names=new Map();
+      for(const style of styleScope()) {
+        const catalogue=availableCatalogue(style);
+        if(!catalogue)continue;
+        for(const label of Object.keys(catalogue.categories||{})) {
+          const normalized=categoryKey(label);
+          if(normalized&&!names.has(normalized))names.set(normalized,label);
+        }
+      }
+      const opts=[new Option('All categories','')];
+      for(const [key,label] of [...names].sort((a,b)=>a[1].localeCompare(b[1])))
+        opts.push(new Option(label,key));
+      select.replaceChildren(...opts);
+      select.value=names.has(original)?original:'';
+      select.disabled=names.size===0;
+    }
     function setDockPreview(choice,data) {
       $('dock-preview').replaceChildren();
       if(data) {
@@ -470,90 +514,149 @@
         saveDockChoice(choice,saved.data);
       }catch(error){console.warn('Icon preference could not be restored:',error);}
     }
-    async function loadDockCollection(prefix) {
-      const catalogue=ICON_STYLES[prefix]?.prefix;
-      if(!catalogue)throw new Error('Unknown icon style.');
-      if(dockCatalogues.has(catalogue))return dockCatalogues.get(catalogue);
+    // Cache native Iconify category metadata, not only icon names. Every
+    // With Icons style shares a name catalogue but keeps its own artwork.
+    async function loadDockCollection(style) {
+      const key=cataloguePrefix(style);
+      if(!key)throw new Error('Unknown icon library.');
+      if(dockCatalogues.has(key))return dockCatalogues.get(key);
       try{
-        const stored=JSON.parse(localStorage.getItem('hav_icon_names_'+catalogue)||'null');
-        if(Array.isArray(stored) && stored.length>=50 &&
-            stored.every(x=>typeof x==='string' && /^[a-z0-9-]+$/.test(x))){
-          dockCatalogues.set(catalogue,stored);
-          return stored;
+        const stored=JSON.parse(localStorage.getItem('hav_icon_catalogue_v2_'+key)||'null');
+        if(stored && Array.isArray(stored.names) && stored.names.length>=50 &&
+           stored.names.every(n=>typeof n==='string'&&/^[a-z0-9-]+$/.test(n))) {
+          const catalogue={names:stored.names,categories:stored.categories||{}};
+          dockCatalogues.set(key,catalogue);
+          return catalogue;
         }
-      }catch(error){console.warn('Cached icon catalogue unavailable:',error);}
-      if(dockRequests.has(catalogue))return dockRequests.get(catalogue);
+      }catch(err){console.warn('Icon categories not cached:',err);}
+      if(dockRequests.has(key))return dockRequests.get(key);
       const promise=(async()=>{
-        const response=await fetch(
-          DOCK_API+'/collection?prefix='+encodeURIComponent(catalogue),{mode:'cors'});
-        if(!response.ok)throw new Error('Icon catalogue unavailable (HTTP '+response.status+').');
-        const result=await response.json();
-        const names=[
-          ...(result.uncategorized||[]),
-          ...Object.values(result.categories||{}).flat()
-        ];
-        const unique=[...new Set(names)].filter(n=>/^[a-z0-9-]+$/.test(n));
-        if(unique.length<50)throw new Error('Icon catalogue was incomplete.');
-        dockCatalogues.set(catalogue,unique.sort());
-        try{localStorage.setItem('hav_icon_names_'+catalogue,JSON.stringify(unique));}
-        catch(error){console.warn('Icon list not cached:',error);}
-        return dockCatalogues.get(catalogue);
+        try {
+          const response=await fetch(DOCK_API+'/collection?prefix='+encodeURIComponent(key),
+            {mode:'cors'});
+          if(!response.ok)throw new Error('Icon catalogue unavailable (HTTP '+response.status+').');
+          const result=await response.json();
+          const categories={};
+          const availableNames=[];
+          const addName=(name)=>{
+            if(typeof name==='string' && /^[a-z0-9-]+$/.test(name))
+              availableNames.push(name);
+          };
+          for(const name of result.uncategorized||[])addName(name);
+          for(const [label,list] of Object.entries(result.categories||{})) {
+            if(!Array.isArray(list))continue;
+            const validated=list.filter(n=>typeof n==='string'&&/^[a-z0-9-]+$/.test(n));
+            for(const name of validated)addName(name);
+            const normalized=categoryKey(label);
+            if(normalized)categories[normalized]=
+              [...new Set([...(categories[normalized]||[]),...validated])];
+          }
+          const names=[...new Set(availableNames)].sort();
+          if(names.length<50)throw new Error('Icon catalogue was incomplete.');
+          const catalogue={names,categories};
+          dockCatalogues.set(key,catalogue);
+          try{
+            localStorage.setItem('hav_icon_catalogue_v2_'+key,JSON.stringify(catalogue));
+          }catch(err){console.warn('Icon category cache unavailable:',err);}
+          return catalogue;
+        }catch(error){
+          // Old caches contain the names only. Use those if the user is offline.
+          try {
+            const old=JSON.parse(localStorage.getItem('hav_icon_names_'+key)||'null');
+            if(Array.isArray(old) && old.length>=50) {
+              const catalogue={names:old,categories:{}};
+              dockCatalogues.set(key,catalogue);
+              return catalogue;
+            }
+          }catch(err){}
+          throw error;
+        }
       })();
-      dockRequests.set(catalogue,promise);
+      dockRequests.set(key,promise);
       try{return await promise;}
-      finally{dockRequests.delete(catalogue);}
+      finally{dockRequests.delete(key);}
     }
-    function activeDockNames() {
-      return dockCatalogues.get(ICON_STYLES[dockPrefix].prefix) ||
-        (dockPrefix.startsWith('withicons-')?DEFAULT_DOCK:[]);
+    function matchingNames(style,query,category) {
+      const catalogue=availableCatalogue(style);
+      const all=catalogue?.names ||
+        (style.startsWith('withicons-')?DEFAULT_DOCK:[]);
+      const restricted=category
+        ? (catalogue?.categories?.[category]||[]) : all;
+      const terms=query.split(/\s+/).filter(Boolean);
+      return restricted.filter(name=>terms.every(term=>
+        name.replace(/-/g,' ').includes(term)));
     }
     function renderDockMatches() {
       const grid=$('dock-grid');
       if(previewObserver)previewObserver.disconnect();
-      const scrollPosition=grid.scrollTop;
-      const search=$('dock-search').value.trim().toLowerCase().replace(/\s+/g,'-');
-      const all=activeDockNames();
-      const matches=all.filter(name=>name.includes(search));
-      const shown=matches.slice(0,dockVisible);
+      const previousPosition=grid.scrollTop;
+      const search=$('dock-search').value.trim().toLowerCase();
+      const category=$('dock-category').value;
+      const allStyles=styleScope();
+      const matches=allStyles.map(style=>({style,names:matchingNames(style,search,category)}));
+      const total=matches.reduce((sum,group)=>sum+group.names.length,0);
+      const shown=[];
+      // In All libraries mode, interleave styles so the first page isn't only Dock.
+      for(let i=0;shown.length<dockVisible;i++){
+        let any=false;
+        for(const group of matches) {
+          if(i>=group.names.length)continue;
+          shown.push({prefix:group.style,name:group.names[i]});
+          any=true;
+          if(shown.length>=dockVisible)break;
+        }
+        if(!any)break;
+      }
       const fragment=document.createDocumentFragment();
-      for(const name of shown) {
+      for(const item of shown) {
         const button=document.createElement('button');
         button.type='button';
-        const selected=pendingDockChoice?.prefix===dockPrefix && pendingDockChoice?.name===name;
+        const selected=pendingDockChoice?.prefix===item.prefix &&
+          pendingDockChoice?.name===item.name;
         button.className='dock-item'+(selected?' selected':'');
-        button.dataset.name=name;
+        button.dataset.name=item.name;
+        button.dataset.prefix=item.prefix;
         const pic=document.createElement('img');
         pic.alt='';
         pic.style.visibility='hidden';
         pic.width=60;pic.height=60;
         const label=document.createElement('span');
-        label.textContent=dockTitle(name);
+        label.textContent=dockTitle(item.name);
         button.append(pic,label);
-        fragment.appendChild(button);
+        if(dockPrefix==='all'){
+          const style=document.createElement('small');
+          style.className='dock-style-name';
+          style.textContent=ICON_STYLES[item.prefix].name;
+          button.append(style);
+        }
+        fragment.append(button);
       }
-      if(!matches.length){
+      if(total===0) {
         const message=document.createElement('p');
         message.style.cssText='grid-column:1/-1;text-align:center;color:#64748b;font-size:13px;';
-        message.textContent='No matching icons. Try a different search.';
+        const loading=allStyles.some(style=>!availableCatalogue(style));
+        message.textContent=loading?'Loading matching icons…':
+          'No matching icons. Try another search or category.';
         fragment.append(message);
       }
       grid.replaceChildren(fragment);
-      grid.scrollTop=scrollPosition;
-      // Load artwork only for on-screen previews. Viewed SVGs remain cached locally.
-      for(const button of grid.querySelectorAll('button[data-name]')) {
-        const pic=button.querySelector('img');
-        watchPreview(pic,button,{prefix:dockPrefix,name:button.dataset.name});
+      grid.scrollTop=previousPosition;
+      for(const button of grid.querySelectorAll('button[data-name]')){
+        watchPreview(button.querySelector('img'),button,
+          {prefix:button.dataset.prefix,name:button.dataset.name});
       }
-      $('dock-more').classList.toggle('hidden',shown.length>=matches.length);
-      $('dock-license').textContent=dockPrefix==='twemoji'
-        ? 'Twemoji: CC BY 4.0 — attribution required.'
-        : (dockPrefix==='fluent-emoji-flat'
-          ? 'Microsoft Fluent Emoji: MIT licence.' : 'With Icons: MIT licence.');
-      $('dock-use').disabled=!pendingDockChoice||pendingDockChoice.prefix!==dockPrefix;
-      const gotAll=dockCatalogues.has(ICON_STYLES[dockPrefix].prefix);
-      $('dock-info').textContent=gotAll
-        ? shown.length+' / '+matches.length+' icons · '+ICON_STYLES[dockPrefix].name
-        : 'Loading '+ICON_STYLES[dockPrefix].name+'…';
+      $('dock-more').classList.toggle('hidden',shown.length>=total);
+      $('dock-use').disabled=!pendingDockChoice || (
+        dockPrefix!=='all' && pendingDockChoice.prefix!==dockPrefix);
+      $('dock-license').textContent=dockPrefix==='all'
+        ? 'With Icons & Fluent Emoji: MIT · Twemoji: CC BY 4.0 (attribution).'
+        : dockPrefix==='twemoji' ? 'Twemoji: CC BY 4.0 — attribution required.'
+        : dockPrefix==='fluent-emoji-flat'
+          ? 'Microsoft Fluent Emoji: MIT licence.' : 'With Icons: MIT licence.';
+      const loadedStyles=allStyles.filter(style=>availableCatalogue(style)).length;
+      $('dock-info').textContent=shown.length+' / '+total+' icons'+
+        (dockPrefix==='all'?' · All libraries':' · '+ICON_STYLES[dockPrefix].name)+
+        (loadedStyles<allStyles.length?' · Loading catalogues…':'');
     }
     function openDockPicker() {
       $('dock-dialog').classList.add('open');
@@ -563,20 +666,27 @@
       pendingDockChoice=dockChoice;
       $('dock-search').value='';
       dockVisible=96;
+      // Do not focus the input or summon the iPhone keyboard on opening.
+      if(document.activeElement instanceof HTMLElement)document.activeElement.blur();
+      updateCategoryOptions();
       renderDockMatches();
-      $('dock-search').focus();
       refreshDockCollection();
     }
-    function refreshDockCollection() {
-      const prefix=dockPrefix;
-      loadDockCollection(prefix)
-        .then(()=>{
-          if(dockPrefix===prefix)renderDockMatches();
-        })
-        .catch(error=>{
-          if(dockPrefix!==prefix)return;
-          $('dock-info').textContent='Search unavailable: '+error.message;
-        });
+    async function refreshDockCollection() {
+      const scope=dockPrefix;
+      const loading=styleScope();
+      const unique=[...new Set(loading.map(style=>cataloguePrefix(style)))];
+      const outcomes=await Promise.allSettled(unique.map(key=>{
+        const style=loading.find(p=>cataloguePrefix(p)===key);
+        return loadDockCollection(style);
+      }));
+      if(dockPrefix!==scope)return;
+      updateCategoryOptions();
+      renderDockMatches();
+      const failures=outcomes.filter(result=>result.status==='rejected');
+      if(failures.length){
+        $('dock-info').textContent+=' · '+failures.length+' catalogues unavailable';
+      }
     }
     function closeDockPicker() {
       $('dock-dialog').classList.remove('open');
@@ -1146,13 +1256,21 @@
     });
     $('dock-library').addEventListener('change',event=>{
       dockPrefix=event.target.value;
-      pendingDockChoice=dockChoice?.prefix===dockPrefix?dockChoice:null;
       dockVisible=96;
+      $('dock-grid').scrollTop=0;
+      updateCategoryOptions();
       renderDockMatches();
       refreshDockCollection();
     });
+    $('dock-category').addEventListener('change',()=>{
+      dockVisible=96;
+      $('dock-grid').scrollTop=0;
+      renderDockMatches();
+    });
     $('dock-search').addEventListener('input',()=>{
-      dockVisible=96;renderDockMatches();
+      dockVisible=96;
+      $('dock-grid').scrollTop=0;
+      renderDockMatches();
     });
     $('dock-more').addEventListener('click',()=>{
       dockVisible+=96;renderDockMatches();
@@ -1160,7 +1278,7 @@
     $('dock-grid').addEventListener('click',event=>{
       const button=event.target.closest('button[data-name]');
       if(!button||button.disabled)return;
-      pendingDockChoice={prefix:dockPrefix,name:button.dataset.name};
+      pendingDockChoice={prefix:button.dataset.prefix,name:button.dataset.name};
       for(const other of $('dock-grid').querySelectorAll('.dock-item.selected'))
         other.classList.remove('selected');
       button.classList.add('selected');
@@ -1172,7 +1290,8 @@
       closeDockPicker();
     });
     $('dock-use').addEventListener('click',async()=>{
-      if(!pendingDockChoice||pendingDockChoice.prefix!==dockPrefix)return;
+      if(!pendingDockChoice||
+         (dockPrefix!=='all' && pendingDockChoice.prefix!==dockPrefix))return;
       const button=$('dock-use');
       button.disabled=true;
       button.textContent='Preparing icon…';
