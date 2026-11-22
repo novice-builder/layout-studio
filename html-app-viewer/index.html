@@ -312,7 +312,6 @@
       document.documentElement.appendChild(host);
       const choose = shadow.querySelector('.change');
       const cancel = shadow.querySelector('.cancel');
-      const backdrop = shadow.querySelector('.shade');
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = '.html,.htm,text/html';
@@ -327,6 +326,7 @@
       let tapCount = 0;
       let lastTapTime = 0;
       let lastX = 0, lastY = 0;
+      let menuOpenedAt = 0;
 
       function closeMenu() {
         if (saving) return;
@@ -337,11 +337,13 @@
         if (saving || isOpen) return;
         isOpen = true;
         tapCount = 0;
+        menuOpenedAt = Date.now();
         host.style.setProperty('display','block','important');
       }
 
       cancel.addEventListener('click',closeMenu);
-      backdrop.addEventListener('click',e => { if (e.target === backdrop) closeMenu(); });
+      // Intentionally require Cancel rather than tapping the backdrop.
+      // iOS may dispatch the third tap's synthetic click onto the just-opened overlay.
       choose.addEventListener('click',() => {
         if (!saving) input.click();
       });
@@ -383,15 +385,32 @@
         }
         lastTapTime=now;
         lastX=t.clientX; lastY=t.clientY;
-        if (tapCount>=3) openMenu();
-      },{capture:true,passive:true});
+        if (tapCount>=3) {
+          // Consume the third tap, preventing its synthetic click from
+          // activating the underlying HTML or immediately closing the menu.
+          if (e.cancelable) e.preventDefault();
+          e.stopImmediatePropagation();
+          openMenu();
+        }
+      },{capture:true,passive:false});
       window.addEventListener('touchcancel',() => {tapStart=null;tapCount=0;},
         {capture:true,passive:true});
 
       // A desktop mouse triple-click is useful for testing, but does not
       // interfere with the iPhone touch sequence.
       window.addEventListener('click',e => {
-        if (e.detail>=3 && !isOpen && !saving) openMenu();
+        // Fallback for iOS click synthesis after touchend, including clicks
+        // that target the newly visible overlay.
+        if (isOpen && Date.now()-menuOpenedAt < 550) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return;
+        }
+        if (e.detail>=3 && !isOpen && !saving) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          openMenu();
+        }
       },true);
 
       input.addEventListener('change',async () => {
