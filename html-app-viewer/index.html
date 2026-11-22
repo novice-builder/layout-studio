@@ -460,7 +460,9 @@
     const localIconShardRequests=new Map();
     const MAX_LOCAL_ICON_SHARDS=16;
     function localLibraryUrl(prefix,file){
-      return new URL('./icon-sets/'+prefix+'/'+file,location.href).href;
+      const url=new URL('./icon-sets/'+prefix+'/'+file,location.href);
+      url.searchParams.set('v',LOCAL_ICON_LIBRARY_VERSION);
+      return url.href;
     }
     async function localIconShard(prefix,index) {
       const cacheKey=prefix+':'+index;
