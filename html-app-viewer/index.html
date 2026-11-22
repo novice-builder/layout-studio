@@ -50,6 +50,31 @@
     html.standalone #setup {display:none;}
     html.standalone .loader {display:grid;}
     @media (prefers-reduced-motion: reduce) {.spin{animation:none}}
+    .dock-row{display:flex;align-items:center;gap:11px;margin:0 0 14px;padding:10px;border:1px solid #e2e8f0;border-radius:13px;background:#fbfcfe;}
+    .dock-thumb{width:50px;height:50px;flex:none;border-radius:12px;display:grid;place-items:center;background:#e8eef9;border:1px solid #e2e8f0;font-size:10px;color:#74829a;overflow:hidden}
+    .dock-thumb img{width:100%;height:100%;object-fit:contain}
+    .dock-copy{flex:1;min-width:0}
+    .dock-copy strong{display:block;font-size:13px;color:#27374f;margin-bottom:3px}
+    .dock-copy small{display:block;font-size:11px;color:#79869a;line-height:1.4}
+    .dock-select{flex:none;background:#fff;border:1px solid #ced8e6;border-radius:10px;padding:9px 11px;color:#2358be;font-size:12px;font-weight:700}
+    #dock-dialog{display:none;position:fixed;inset:0;z-index:30;background:rgba(18,28,46,.48);align-items:center;justify-content:center;padding:calc(env(safe-area-inset-top) + 16px) 14px calc(env(safe-area-inset-bottom) + 16px)}
+    #dock-dialog.open{display:flex}
+    .dock-panel{width:min(100%,460px);max-height:85dvh;display:flex;flex-direction:column;background:#fff;border-radius:19px;box-shadow:0 20px 90px #0003;overflow:hidden}
+    .dock-head{display:flex;align-items:center;justify-content:space-between;padding:17px 17px 9px;gap:10px}
+    .dock-head h2{margin:0;font-size:18px}
+    .dock-close{background:#eef2f7;border:0;border-radius:10px;min-width:37px;height:37px;font-size:21px;color:#5d6b7e}
+    .dock-input{margin:0 17px 10px;border:1px solid #d5deea;border-radius:11px;min-height:43px;padding:9px 12px;font:inherit;font-size:15px;outline-offset:2px}
+    .dock-hint{padding:0 17px 8px;color:#7c8ba0;font-size:11px;line-height:1.4}
+    .dock-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;overflow:auto;min-height:85px;padding:8px 15px 15px}
+    .dock-item{min-width:0;border:1px solid #e4eaf2;background:#f8fafc;border-radius:12px;padding:8px 4px 7px;display:flex;flex-direction:column;align-items:center;gap:6px;color:#526078}
+    .dock-item.selected{border-color:#2563eb;box-shadow:0 0 0 1px #2563eb;background:#eff5ff}
+    .dock-item img{display:block;width:min(100%,58px);height:58px;object-fit:contain}
+    .dock-item span{font-size:10px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .dock-actions{display:flex;align-items:center;gap:10px;padding:13px 15px 16px;border-top:1px solid #e8edf4}
+    .dock-actions button{min-height:44px;border-radius:11px;border:1px solid #dce4ee;padding:10px 15px;font-size:13px;font-weight:700}
+    #dock-remove{background:#fff;color:#64748b}
+    #dock-use{background:#2563eb;color:#fff;border-color:#2563eb;flex:1}
+    @media(max-width:350px){.dock-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
   </style>
   <script>
     // Keep the loader, rather than the viewer's setup interface, visible while a Home Screen app starts.
@@ -80,6 +105,11 @@
         <input id="file-input" type="file" accept=".html,.htm,text/html" class="hidden">
         <div class="error hidden" id="error" role="alert"></div>
         <div class="hidden" id="ready">
+          <div class="dock-row">
+            <div class="dock-thumb" id="dock-preview" aria-hidden="true">Default</div>
+            <div class="dock-copy"><strong>Home Screen icon</strong><small id="dock-name">Safari default</small></div>
+            <button type="button" class="dock-select" id="dock-open">Choose icon</button>
+          </div>
           <div class="status" id="ready-status"><span aria-hidden="true">✓</span><span id="ready-message">Ready to install.</span></div>
           <div class="instructions">
             <strong>Install this HTML as an app</strong>
@@ -98,6 +128,18 @@
     </div>
   </main>
 
+  <section id="dock-dialog" role="dialog" aria-modal="true" aria-labelledby="dock-title" aria-hidden="true">
+    <div class="dock-panel">
+      <div class="dock-head"><h2 id="dock-title">Choose Dock icon</h2><button type="button" id="dock-close" class="dock-close" aria-label="Close icon picker">×</button></div>
+      <input id="dock-search" class="dock-input" type="search" placeholder="Search e.g. camera, folder, code" autocomplete="off" aria-label="Search Dock icons">
+      <div class="dock-hint" id="dock-info">Search free Dock icons. An internet connection is required while choosing.</div>
+      <div class="dock-grid" id="dock-grid" aria-live="polite"></div>
+      <div class="dock-actions">
+        <button type="button" id="dock-remove">Use default</button>
+        <button type="button" id="dock-use" disabled>Use selected icon</button>
+      </div>
+    </div>
+  </section>
   <!-- This is the ONLY visible interface on an installed app that has not received its HTML yet. -->
   <section id="installed-setup" aria-label="First-time HTML file setup">
     <div class="panel">
@@ -142,6 +184,175 @@
       document.title = clean;
       const meta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
       if (meta) meta.setAttribute('content', clean);
+    }
+    // Dock icons use the MIT-licensed "with icons" collection. The chooser runs
+    // only in Safari setup and does not affect any installed app or stored HTML.
+    const DOCK_API = 'https://api.iconify.design';
+    const DOCK_PREFIX = 'withicons-dock';
+    const DEFAULT_DOCK = [
+      'camera','folder','settings','code','terminal','layout-dashboard','image',
+      'book-open','calendar','mail','search','globe','smartphone','gamepad','home',
+      'chart-bar','video-camera','music-note','cloud','notebook','calculator','wallet',
+      'file-code','monitor','palette','database','download','upload','bell','rocket'
+    ];
+    let dockNames = null, dockRequest = null, dockChoice = null, dockImage = null;
+
+    function dockUrl(name) {
+      return DOCK_API + '/' + DOCK_PREFIX + ':' + encodeURIComponent(name) + '.svg';
+    }
+    function dockTitle(name) {
+      return name.split('-').map(v=>v[0]?.toUpperCase() + v.slice(1)).join(' ');
+    }
+    function setDockPreview(name,data) {
+      $('dock-preview').replaceChildren();
+      if (data) {
+        const pic = document.createElement('img');
+        pic.src = data;
+        pic.alt = '';
+        $('dock-preview').append(pic);
+      } else {
+        $('dock-preview').textContent = 'Default';
+      }
+      $('dock-name').textContent = name ? dockTitle(name) + ' · Dock' : 'Safari default';
+    }
+    function setHomeIcon(data) {
+      const existing = document.getElementById('dock-apple-touch-icon');
+      if (existing) existing.remove();
+      if (!data) return;
+      const link = document.createElement('link');
+      link.id = 'dock-apple-touch-icon';
+      link.rel = 'apple-touch-icon';
+      link.setAttribute('sizes','180x180');
+      link.href = data;
+      document.head.append(link);
+    }
+    function setDockManifest(data) {
+      const old = document.getElementById('dock-web-manifest');
+      if (old) old.remove();
+      if (!data || !urlId) return;
+      const name = document.title;
+      const start = new URL(location.href);
+      const manifest = {
+        id: start.pathname + '?app=' + urlId,
+        name, short_name: name.slice(0,30), start_url: start.pathname + '?app=' + urlId,
+        scope: start.pathname.replace(/[^/]*$/,''),
+        display: 'standalone', background_color: '#ffffff', theme_color: '#f8fafc',
+        icons: [{src:data,type:'image/png',sizes:'180x180',purpose:'any'}]
+      };
+      const link=document.createElement('link');
+      link.id='dock-web-manifest';
+      link.rel='manifest';
+      link.href='data:application/manifest+json,'+encodeURIComponent(JSON.stringify(manifest));
+      document.head.append(link);
+    }
+    function saveDockChoice(name,data) {
+      dockChoice = name;
+      dockImage = data;
+      setDockPreview(name,data);
+      setHomeIcon(data);
+      setDockManifest(data);
+      if (urlId) {
+        try {
+          const key='hav_dock_icon_'+urlId;
+          if (data) localStorage.setItem(key,JSON.stringify({name,data}));
+          else localStorage.removeItem(key);
+        } catch(error) { console.warn('Icon preference could not be cached:',error); }
+      }
+    }
+    function restoreDockChoice(id) {
+      if (!id) return;
+      try {
+        const saved=JSON.parse(localStorage.getItem('hav_dock_icon_'+id)||'null');
+        if (saved && /^[a-z0-9-]+$/.test(saved.name) && /^data:image\/png;base64,/.test(saved.data)) {
+          saveDockChoice(saved.name,saved.data);
+        }
+      } catch(error) { console.warn('No icon preference restored:',error); }
+    }
+    async function loadDockCollection() {
+      if (dockNames) return dockNames;
+      if (dockRequest) return dockRequest;
+      dockRequest=(async()=>{
+        const response=await fetch(DOCK_API+'/collection?prefix='+DOCK_PREFIX,{mode:'cors'});
+        if (!response.ok) throw new Error('Icon catalogue unavailable (HTTP '+response.status+').');
+        const result=await response.json();
+        const names=[...(result.uncategorized||[]),...Object.values(result.categories||{}).flat()];
+        const unique=[...new Set(names)].filter(name=>/^[a-z0-9-]+$/.test(name));
+        if(unique.length<100) throw new Error('The icon catalogue could not be loaded.');
+        dockNames=unique.sort();
+        return dockNames;
+      })();
+      try{return await dockRequest;}
+      finally{dockRequest=null;}
+    }
+    function renderDockMatches() {
+      const grid=$('dock-grid');
+      const query=$('dock-search').value.trim().toLowerCase().replace(/\s+/g,'-');
+      const source=dockNames||DEFAULT_DOCK;
+      const matches=source.filter(n=>n.includes(query)).slice(0,100);
+      const fragment=document.createDocumentFragment();
+      for(const name of matches) {
+        const button=document.createElement('button');
+        button.type='button';
+        button.className='dock-item'+(dockChoice===name?' selected':'');
+        button.dataset.name=name;
+        const pic=document.createElement('img');
+        pic.loading='lazy';
+        pic.alt='';
+        pic.src=dockUrl(name);
+        const label=document.createElement('span');
+        label.textContent=dockTitle(name);
+        button.append(pic,label);
+        fragment.appendChild(button);
+      }
+      if(!matches.length){
+        const msg=document.createElement('p');
+        msg.style.cssText='grid-column:1/-1;color:#64748b;font-size:13px;text-align:center;';
+        msg.textContent='No matching icons. Try another word.';
+        fragment.appendChild(msg);
+      }
+      grid.replaceChildren(fragment);
+      $('dock-use').disabled=!dockChoice;
+      $('dock-info').textContent=dockNames ?
+        ('Showing '+matches.length+(source.filter(n=>n.includes(query)).length>100?' of more':'')+
+         ' results from '+dockNames.length+' Dock icons.'):
+        'Showing starter icons while the full collection loads.';
+    }
+    function openDockPicker() {
+      $('dock-dialog').classList.add('open');
+      $('dock-dialog').setAttribute('aria-hidden','false');
+      $('dock-search').value='';
+      renderDockMatches();
+      $('dock-search').focus();
+      loadDockCollection().then(()=>renderDockMatches())
+        .catch(error=>{$('dock-info').textContent=
+          'Full icon search unavailable. Starter icons remain available. '+error.message;});
+    }
+    function closeDockPicker() {
+      $('dock-dialog').classList.remove('open');
+      $('dock-dialog').setAttribute('aria-hidden','true');
+    }
+    async function iconToPng(name) {
+      if(!/^[a-z0-9-]+$/.test(name)) throw new Error('Invalid icon name.');
+      let response;
+      try {response=await fetch(dockUrl(name),{mode:'cors'});}
+      catch(error) {throw new Error('Could not retrieve the icon. Check your internet connection.');}
+      if(!response.ok) throw new Error('The selected icon could not be downloaded.');
+      const svg=await response.text();
+      if(!/<svg[\s>]/i.test(svg)) throw new Error('The icon response was not SVG.');
+      const blob=new Blob([svg],{type:'image/svg+xml'});
+      const blobUrl=URL.createObjectURL(blob);
+      try {
+        const img=new Image();
+        await new Promise((resolve,reject)=>{
+          img.onload=resolve;
+          img.onerror=()=>reject(new Error('The icon could not be rendered.'));
+          img.src=blobUrl;
+        });
+        const canvas=document.createElement('canvas');
+        canvas.width=180;canvas.height=180;
+        canvas.getContext('2d').drawImage(img,0,0,180,180);
+        return canvas.toDataURL('image/png');
+      } finally {URL.revokeObjectURL(blobUrl);}
     }
     function setCookie(name, value, age = 60 * 60 * 24 * 7) {
       const secure = location.protocol === 'https:' ? '; Secure' : '';
@@ -501,6 +712,7 @@
         const packed = await encodeHtml(html);
         const outcome = packCookies(id,file.name,packed);
         urlId = id;
+        saveDockChoice(null,null);
         const url = new URL(location.href);
         url.searchParams.set('app',id);
         url.hash = '';
@@ -582,6 +794,7 @@
       const stage = getStaged(urlId);
       if (!stage || !urlId || stage.meta.id !== urlId) return;
       setPageName(stage.meta.name);
+      restoreDockChoice(urlId);
       $('file-label').textContent = stage.meta.name;
       $('file-desc').textContent = 'Previously prepared for your Home Screen';
       $('ready-message').textContent = 'Ready. Add this page to your Home Screen before preparing another file.';
@@ -595,6 +808,38 @@
       }
     }
 
+    $('dock-open').addEventListener('click',openDockPicker);
+    $('dock-close').addEventListener('click',closeDockPicker);
+    $('dock-dialog').addEventListener('click',event=>{
+      if (event.target === $('dock-dialog')) closeDockPicker();
+    });
+    $('dock-search').addEventListener('input',renderDockMatches);
+    $('dock-grid').addEventListener('click',event=>{
+      const button=event.target.closest('button[data-name]');
+      if (!button) return;
+      dockChoice=button.dataset.name;
+      renderDockMatches();
+    });
+    $('dock-remove').addEventListener('click',()=>{
+      saveDockChoice(null,null);
+      closeDockPicker();
+    });
+    $('dock-use').addEventListener('click',async()=>{
+      if(!dockChoice)return;
+      const button=$('dock-use');
+      button.disabled=true;
+      button.textContent='Preparing icon…';
+      try{
+        const data=await iconToPng(dockChoice);
+        saveDockChoice(dockChoice,data);
+        closeDockPicker();
+      }catch(error){
+        $('dock-info').textContent=error.message;
+      }finally{
+        button.textContent='Use selected icon';
+        button.disabled=false;
+      }
+    });
     $('choose').addEventListener('click',() => $('file-input').click());
     $('file-input').addEventListener('change',e => { const file=e.target.files?.[0]; if(file) prepSafariFile(file); e.target.value=''; });
     $('installed-choose').addEventListener('click',() => $('installed-input').click());
