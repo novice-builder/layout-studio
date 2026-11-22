@@ -154,6 +154,12 @@
     .dock-default-icon{width:58px;height:58px;border-radius:12px;display:grid!important;place-items:center;background:linear-gradient(145deg,#e5ebf4,#bdcce0);color:#405c87;font-size:30px!important;font-weight:600}
     .dock-item.current:not(.selected){border-color:#9fb5d8}
     @media(min-width:700px){.dock-head{padding-left:20px;padding-right:20px}.dock-filters{padding-left:20px;padding-right:20px}.dock-grid{padding-left:15px;padding-right:15px;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:9px}.dock-item img,.dock-default-icon{width:72px;height:72px}.dock-metadata{padding-left:20px;padding-right:20px}}
+    /* Icon export settings share the existing title row: no extra toolbar. */
+    .dock-head-controls{display:flex;align-items:center;gap:7px;margin-left:auto;min-width:0}
+    #dock-bg-mode{height:37px;max-width:88px;padding:0 5px;border:1px solid #d5deea;border-radius:9px;background:#fff;font:inherit;font-size:12px;color:#34445b}
+    #dock-bg-color{width:33px;height:35px;padding:2px;border:1px solid #d5deea;background:#fff;border-radius:9px;cursor:pointer;flex:none}
+    .dock-close{flex:none}
+    @media(max-width:360px){.dock-head{padding-left:9px;padding-right:9px}.dock-head h2{font-size:15px}.dock-head-controls{gap:5px}#dock-bg-mode{max-width:78px;font-size:11px}}
     .creator-only{display:none}
     body.creator-active .creator-only{display:flex}
     .creator-icon-row{margin:0 0 15px;padding:8px 10px;background:#fff;border:1px solid #dbe3ee;border-radius:13px;align-items:center;gap:10px}
@@ -232,7 +238,18 @@
 
   <section id="dock-dialog" role="dialog" aria-modal="true" aria-labelledby="dock-title" aria-hidden="true">
     <div class="dock-panel">
-      <div class="dock-head"><h2 id="dock-title">App icons</h2><button type="button" id="dock-close" class="dock-close" aria-label="Close icon picker">×</button></div>
+      <div class="dock-head">
+        <h2 id="dock-title">App icons</h2>
+        <div class="dock-head-controls">
+          <select id="dock-bg-mode" aria-label="Icon background mode" title="Icon background">
+            <option value="auto">Auto BG</option>
+            <option value="solid">Colour BG</option>
+            <option value="transparent">Clear BG</option>
+          </select>
+          <input id="dock-bg-color" type="color" value="#e8eef5" aria-label="Choose icon background colour" title="Background colour">
+          <button type="button" id="dock-close" class="dock-close" aria-label="Close icon picker">×</button>
+        </div>
+      </div>
       <div class="dock-filters">
       <select id="dock-library" class="dock-library" aria-label="Icon style or library">
         <option value="all">All libraries &amp; styles</option>
@@ -374,6 +391,22 @@
     let dockChoice = null, pendingDockChoice = null, dockImage = null;
     let creatorIconChoice = null, creatorIconData = null, creatorDefaultIconData = null;
     let iconPickerTarget = 'app';
+    let iconBgMode = 'auto', iconBgColor = '#e8eef5';
+    try {
+      const iconPrefs=JSON.parse(localStorage.getItem('hav_icon_export_prefs_v1')||'null');
+      if(iconPrefs && ['auto','solid','transparent'].includes(iconPrefs.mode))
+        iconBgMode=iconPrefs.mode;
+      if(iconPrefs && /^#[0-9a-f]{6}$/i.test(iconPrefs.color||''))
+        iconBgColor=iconPrefs.color;
+    }catch(error){console.warn('Icon export settings not restored:',error);}
+    function updateIconBgSettings() {
+      $('dock-bg-mode').value=iconBgMode;
+      $('dock-bg-color').value=iconBgColor;
+      try {
+        localStorage.setItem('hav_icon_export_prefs_v1',
+          JSON.stringify({mode:iconBgMode,color:iconBgColor}));
+      }catch(error){console.warn('Icon export settings not saved:',error);}
+    }
     let chosenHtml = null, chosenFileName = null, chosenFileSize = 0;
 
     // Only previewed icons are embedded into the viewer's local Cache Storage.
@@ -972,6 +1005,7 @@
       dockPrefix=$('dock-library').value;
       pendingDockChoice=null;
       $('dock-search').value='';
+      updateIconBgSettings();
       dockVisible=96;
       // Do not focus the input or summon the iPhone keyboard on opening.
       if(document.activeElement instanceof HTMLElement)document.activeElement.blur();
@@ -999,6 +1033,59 @@
       $('dock-dialog').classList.remove('open');
       $('dock-dialog').setAttribute('aria-hidden','true');
     }
+    // Analyse only transparent padding. We do not strip opaque white outlines
+    // because they may be a deliberate feature of an icon's design.
+    function visibleIconBounds(data,width,height) {
+      const pixels=data.data;
+      let left=width, top=height, right=-1, bottom=-1;
+      for(let y=0;y<height;y++){
+        for(let x=0;x<width;x++){
+          const alpha=pixels[(y*width+x)*4+3];
+          if(alpha<14)continue;
+          if(x<left)left=x;
+          if(x>right)right=x;
+          if(y<top)top=y;
+          if(y>bottom)bottom=y;
+        }
+      }
+      if(right<left || bottom<top)return null;
+      return {left,top,right,bottom,width:right-left+1,height:bottom-top+1};
+    }
+    function autoIconBackground(data,bounds,width) {
+      // Match the visible artwork's outer colours instead of leaving
+      // transparent margins for iOS to fill with white.
+      const bins=new Map();
+      const pixels=data.data;
+      const thickness=Math.max(3,Math.floor(Math.min(bounds.width,bounds.height)*.13));
+      for(let y=bounds.top;y<=bounds.bottom;y+=3){
+        for(let x=bounds.left;x<=bounds.right;x+=3){
+          const edge=x-bounds.left<thickness||bounds.right-x<thickness||
+            y-bounds.top<thickness||bounds.bottom-y<thickness;
+          if(!edge)continue;
+          const i=(y*width+x)*4;
+          if(pixels[i+3]<180)continue;
+          const r=pixels[i],g=pixels[i+1],b=pixels[i+2];
+          // Ignore almost-white highlights so a white button face does not
+          // become a permanent white surround.
+          if(r>242 && g>242 && b>242)continue;
+          const key=((r>>4)<<8)|((g>>4)<<4)|(b>>4);
+          const existing=bins.get(key)||{count:0,r:0,g:0,b:0};
+          existing.count++;
+          existing.r+=r;existing.g+=g;existing.b+=b;
+          bins.set(key,existing);
+        }
+      }
+      let best=null;
+      for(const candidate of bins.values()){
+        if(!best||candidate.count>best.count)best=candidate;
+      }
+      if(!best)return '#e8eef5';
+      // Use an average within the winning colour bucket for a smooth fill.
+      const r=Math.round(best.r/best.count);
+      const g=Math.round(best.g/best.count);
+      const b=Math.round(best.b/best.count);
+      return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
+    }
     async function iconToPng(choice) {
       if(!choice||!ICON_STYLES[choice.prefix]|| !/^[a-z0-9-]+$/.test(choice.name))
         throw new Error('Invalid icon selection.');
@@ -1012,10 +1099,41 @@
           img.onerror=()=>reject(new Error('The icon could not be rendered.'));
           img.src=url;
         });
-        const canvas=document.createElement('canvas');
-        canvas.width=180;canvas.height=180;
-        canvas.getContext('2d').drawImage(img,0,0,180,180);
-        return canvas.toDataURL('image/png');
+        const resolution=512;
+        const source=document.createElement('canvas');
+        source.width=resolution;source.height=resolution;
+        const sourceContext=source.getContext('2d',{willReadFrequently:true});
+        if(!sourceContext)throw new Error('Canvas is not available.');
+        // Keep the source aspect ratio rather than stretching nonsquare SVGs.
+        const width=img.naturalWidth||img.width||resolution;
+        const height=img.naturalHeight||img.height||resolution;
+        const fit=Math.min(resolution/width,resolution/height);
+        const dw=width*fit,dh=height*fit;
+        sourceContext.clearRect(0,0,resolution,resolution);
+        sourceContext.drawImage(img,(resolution-dw)/2,(resolution-dh)/2,dw,dh);
+        const data=sourceContext.getImageData(0,0,resolution,resolution);
+        const bounds=visibleIconBounds(data,resolution,resolution);
+        if(!bounds)throw new Error('The icon contains no visible artwork.');
+        const finalCanvas=document.createElement('canvas');
+        finalCanvas.width=180;finalCanvas.height=180;
+        const ctx=finalCanvas.getContext('2d');
+        if(!ctx)throw new Error('Canvas is not available.');
+        // Fill the square before drawing, including the rounded corners that
+        // iOS will crop. This avoids a white halo around transparent artwork.
+        if(iconBgMode!=='transparent'){
+          ctx.fillStyle=iconBgMode==='solid'?iconBgColor:
+            autoIconBackground(data,bounds,resolution);
+          ctx.fillRect(0,0,180,180);
+        }
+        // Trim transparent padding and enlarge slightly to the icon edges.
+        // 1.04x overscan avoids thin anti-aliased gaps at the square boundary.
+        const scale=Math.min(180/bounds.width,180/bounds.height)*1.04;
+        const outW=bounds.width*scale,outH=bounds.height*scale;
+        ctx.imageSmoothingEnabled=true;
+        ctx.imageSmoothingQuality='high';
+        ctx.drawImage(source,bounds.left,bounds.top,bounds.width,bounds.height,
+          (180-outW)/2,(180-outH)/2,outW,outH);
+        return finalCanvas.toDataURL('image/png');
       }finally{URL.revokeObjectURL(url);}
     }
 
@@ -1560,6 +1678,15 @@
 
     $('dock-open').addEventListener('click',()=>openDockPicker('app'));
     $('creator-icon-open').addEventListener('click',()=>openDockPicker('creator'));
+    $('dock-bg-mode').addEventListener('change',value=>{
+      iconBgMode=value.target.value;
+      updateIconBgSettings();
+    });
+    $('dock-bg-color').addEventListener('input',event=>{
+      iconBgColor=event.target.value;
+      iconBgMode='solid';
+      updateIconBgSettings();
+    });
     $('dock-close').addEventListener('click',async()=>{
       if(!pendingDockChoice){
         closeDockPicker();
