@@ -154,6 +154,12 @@
     .dock-default-icon{width:58px;height:58px;border-radius:12px;display:grid!important;place-items:center;background:linear-gradient(145deg,#e5ebf4,#bdcce0);color:#405c87;font-size:30px!important;font-weight:600}
     .dock-item.current:not(.selected){border-color:#9fb5d8}
     @media(min-width:700px){.dock-head{padding-left:20px;padding-right:20px}.dock-filters{padding-left:20px;padding-right:20px}.dock-grid{padding-left:15px;padding-right:15px;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:9px}.dock-item img,.dock-default-icon{width:72px;height:72px}.dock-metadata{padding-left:20px;padding-right:20px}}
+    .creator-only{display:none}
+    body.creator-active .creator-only{display:flex}
+    .creator-icon-row{margin:0 0 15px;padding:8px 10px;background:#fff;border:1px solid #dbe3ee;border-radius:13px;align-items:center;gap:10px}
+    .creator-icon-row .dock-copy strong{font-size:13px}
+    .creator-icon-row .dock-copy small{font-size:11px}
+    .creator-icon-row .dock-thumb{width:42px;height:42px}
   </style>
   <script>
     // Keep the loader, rather than the viewer's setup interface, visible while a Home Screen app starts.
@@ -179,6 +185,14 @@
       </div>
       <div class="overline">GitHub Pages · iPhone</div>
       <h1>Prepare Home Screen app</h1>
+      <div class="creator-icon-row creator-only" id="creator-icon-row">
+        <div class="dock-thumb" id="creator-icon-preview" aria-hidden="true">Default</div>
+        <div class="dock-copy">
+          <strong>Creator shortcut icon</strong>
+          <small id="creator-icon-name">Default icon</small>
+        </div>
+        <button type="button" class="dock-select" id="creator-icon-open">Choose</button>
+      </div>
       <p class="intro">Choose HTML, an icon, or both. You can install the app first and select its HTML afterwards.</p>
       <section class="panel">
         <div class="file-symbol" aria-hidden="true">
@@ -297,8 +311,9 @@
       if (meta) meta.setAttribute('content', clean);
     }
     function applyCreatorBookmarkIdentity() {
-      // Static identity for the Home Screen Creator shortcut. App metadata is
-      // set separately once Prepare Web App produces a new ?app= URL.
+      // The permanent Creator bookmark keeps its own icon, separate from
+      // the next HTML app's icon. Reopenings restore Creator selection.
+      document.body.classList.add('creator-active');
       setPageName('HTML App Creator');
       $('app-name').value='';
       const canvas=document.createElement('canvas');
@@ -322,8 +337,10 @@
       const tag=document.createElement('link');
       tag.id='creator-bookmark-icon';tag.rel='apple-touch-icon';
       tag.setAttribute('sizes','180x180');
-      tag.href=canvas.toDataURL('image/png');
+      creatorDefaultIconData=canvas.toDataURL('image/png');
+      tag.href=creatorDefaultIconData;
       document.head.append(tag);
+      restoreCreatorIcon();
     }
     // The icon picker is optional. It is only active in Safari setup.
     // Dock / other With Icons styles are MIT, Fluent Emoji is MIT, Twemoji is CC BY 4.0.
@@ -355,6 +372,8 @@
     let dockPrefix = 'all';
     let dockVisible = 96;
     let dockChoice = null, pendingDockChoice = null, dockImage = null;
+    let creatorIconChoice = null, creatorIconData = null, creatorDefaultIconData = null;
+    let iconPickerTarget = 'app';
     let chosenHtml = null, chosenFileName = null, chosenFileSize = 0;
 
     // Only previewed icons are embedded into the viewer's local Cache Storage.
@@ -618,6 +637,50 @@
         ? dockTitle(choice.name)+' · '+(ICON_STYLES[choice.prefix]?.name||'Icon')
         : 'Safari default';
     }
+    function saveCreatorIcon(choice,data) {
+      if(!creatorMode || urlId)return;
+      creatorIconChoice=choice;
+      creatorIconData=data;
+      let link=document.getElementById('creator-bookmark-icon');
+      if(!link){
+        link=document.createElement('link');
+        link.rel='apple-touch-icon';
+        link.id='creator-bookmark-icon';
+        link.setAttribute('sizes','180x180');
+        document.head.append(link);
+      }
+      link.href=data||creatorDefaultIconData||'';
+      const preview=$('creator-icon-preview');
+      preview.replaceChildren();
+      const displayed=data||creatorDefaultIconData;
+      if(displayed){
+        const pic=document.createElement('img');
+        pic.src=displayed;
+        pic.alt='';
+        preview.append(pic);
+      }else preview.textContent='Default';
+      $('creator-icon-name').textContent=choice?
+        dockTitle(choice.name)+' · '+(ICON_STYLES[choice.prefix]?.name||'Icon'):
+        'Default Creator icon';
+      try{
+        if(choice&&data)localStorage.setItem('hav_creator_icon_v1',JSON.stringify({choice,data}));
+        else localStorage.removeItem('hav_creator_icon_v1');
+      }catch(error){console.warn('Creator icon could not be saved:',error);}
+    }
+    function restoreCreatorIcon() {
+      try{
+        const saved=JSON.parse(localStorage.getItem('hav_creator_icon_v1')||'null');
+        if(saved && saved.choice &&
+           ICON_STYLES[saved.choice.prefix] &&
+           /^[a-z0-9-]+$/.test(saved.choice.name) &&
+           typeof saved.data==='string' &&
+           /^data:image\/png;base64,/.test(saved.data)){
+          saveCreatorIcon(saved.choice,saved.data);
+          return;
+        }
+      }catch(error){console.warn('Creator icon could not be restored:',error);}
+      saveCreatorIcon(null,null);
+    }
     function setHomeIcon(data) {
       // The permanent Creator bookmark icon must not compete with an app's
       // selected icon when Safari builds a new Home Screen web app.
@@ -658,8 +721,12 @@
       dockChoice=choice;
       dockImage=data;
       setDockPreview(choice,data);
-      setHomeIcon(data);
-      setDockManifest(data);
+      // A future app's icon should not replace the permanent Creator icon
+      // until Prepare Web App switches to the new app's unique URL.
+      if(!creatorMode || urlId){
+        setHomeIcon(data);
+        setDockManifest(data);
+      }
       if(urlId){
         try{
           const key='hav_dock_icon_'+urlId;
@@ -824,7 +891,8 @@
         defaultButton.className='dock-item default-tile';
         if(pendingDockChoice?.prefix==='default')
           defaultButton.classList.add('selected');
-        else if(!dockChoice)defaultButton.classList.add('current');
+        else if(!(iconPickerTarget==='creator'?creatorIconChoice:dockChoice))
+          defaultButton.classList.add('current');
         const glyph=document.createElement('span');
         glyph.className='dock-default-icon';
         glyph.textContent='✦';
@@ -846,7 +914,8 @@
         const selected=pendingDockChoice?.prefix===item.prefix &&
           pendingDockChoice?.name===item.name;
         button.className='dock-item'+(selected?' selected':'');
-        if(dockChoice?.prefix===item.prefix && dockChoice?.name===item.name)
+        const currentChoice=iconPickerTarget==='creator'?creatorIconChoice:dockChoice;
+        if(currentChoice?.prefix===item.prefix && currentChoice?.name===item.name)
           button.classList.add('current');
         button.dataset.name=item.name;
         button.dataset.prefix=item.prefix;
@@ -894,7 +963,9 @@
       // automatically without requiring a visible Load More control.
       requestAnimationFrame(checkDockScroll);
     }
-    function openDockPicker() {
+    function openDockPicker(target='app') {
+      iconPickerTarget=(target==='creator'&&creatorMode&&!urlId)?'creator':'app';
+      $('dock-title').textContent=iconPickerTarget==='creator'?'Creator shortcut icon':'App icons';
       $('dock-dialog').classList.add('open');
       $('dock-dialog').setAttribute('aria-hidden','false');
       $('dock-library').value=dockPrefix;
@@ -1370,6 +1441,7 @@
         url.hash='';
         history.replaceState(null,'',url.href);
         setPageName(name);
+        document.body.classList.remove('creator-active');
         // Reapply the manifest after setting the app ID and title.
         saveDockChoice(dockChoice,dockImage);
         try{
@@ -1486,7 +1558,8 @@
       }
     }
 
-    $('dock-open').addEventListener('click',openDockPicker);
+    $('dock-open').addEventListener('click',()=>openDockPicker('app'));
+    $('creator-icon-open').addEventListener('click',()=>openDockPicker('creator'));
     $('dock-close').addEventListener('click',async()=>{
       if(!pendingDockChoice){
         closeDockPicker();
@@ -1498,12 +1571,14 @@
       button.textContent='…';
       try{
         if(selected.prefix==='default') {
-          saveDockChoice(null,null);
+          if(iconPickerTarget==='creator')saveCreatorIcon(null,null);
+          else saveDockChoice(null,null);
         } else {
           const data=await iconToPng(selected);
-          saveDockChoice(selected,data);
+          if(iconPickerTarget==='creator')saveCreatorIcon(selected,data);
+          else saveDockChoice(selected,data);
         }
-        hidePreparedStatus();
+        if(iconPickerTarget!=='creator')hidePreparedStatus();
         pendingDockChoice=null;
         closeDockPicker();
       }catch(error){
