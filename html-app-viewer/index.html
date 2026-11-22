@@ -283,12 +283,15 @@
           <option value="fluent-emoji-flat">Microsoft Fluent Emoji — colourful</option>
           <option value="twemoji">Twemoji — colourful</option>
         </optgroup>
+        <optgroup label="Outline &amp; solid icons">
+          <option value="iconoir">Iconoir — outline &amp; solid</option>
+        </optgroup>
       </select>
       <select id="dock-category" class="dock-category" aria-label="Filter icons by category">
         <option value="">All categories</option>
       </select>
       </div>
-      <input id="dock-search" class="dock-input" type="search" placeholder="Search e.g. camera, folder, code" autocomplete="off" aria-label="Search icons">
+      <input id="dock-search" class="dock-input" type="search" enterkeyhint="search" placeholder="Search e.g. camera, folder, code" autocomplete="off" aria-label="Search icons">
       <div class="dock-metadata">
         <div class="dock-hint" id="dock-info">Icons previously viewed are cached locally.</div>
         <div class="dock-hint" id="dock-license"></div>
@@ -411,7 +414,8 @@
       'withicons-clay':{name:'Clay',path:'clay',prefix:'withicons-dock'},
       'withicons-skeuo':{name:'Skeuomorphic',path:'skeuo',prefix:'withicons-dock'},
       'fluent-emoji-flat':{name:'Fluent Emoji',prefix:'fluent-emoji-flat'},
-      'twemoji':{name:'Twemoji',prefix:'twemoji'}
+      'twemoji':{name:'Twemoji',prefix:'twemoji'},
+      'iconoir':{name:'Iconoir',prefix:'iconoir'}
     };
     const DEFAULT_DOCK = [
       'camera','folder','settings','code','terminal','layout-dashboard','image',
@@ -1020,9 +1024,10 @@
           {prefix:button.dataset.prefix,name:button.dataset.name});
       }
       $('dock-license').textContent=dockPrefix==='all'
-        ? 'With Icons / Fluent: MIT · Twemoji: CC BY 4.0'
+        ? 'With Icons / Fluent / Iconoir: MIT · Twemoji: CC BY 4.0'
         : dockPrefix==='twemoji'?'Twemoji: CC BY 4.0'
-        : dockPrefix==='fluent-emoji-flat'?'Fluent Emoji: MIT':'With Icons: MIT';
+        : dockPrefix==='fluent-emoji-flat'?'Fluent Emoji: MIT'
+        : dockPrefix==='iconoir'?'Iconoir: MIT':'With Icons: MIT';
       const loadedStyles=allStyles.filter(style=>availableCatalogue(style)).length;
       updateDockIconCount();
       if(loadedStyles<allStyles.length)
@@ -1158,8 +1163,11 @@
         // Fill the square before drawing, including the rounded corners that
         // iOS will crop. This avoids a white halo around transparent artwork.
         if(iconBgMode!=='transparent'){
+          // Monochrome line icons need a light surface so their dark strokes
+          // remain legible; sampling the stroke would produce a dark background.
           ctx.fillStyle=iconBgMode==='solid'?iconBgColor:
-            autoIconBackground(data,bounds,resolution);
+            (choice.prefix==='iconoir'?'#e8eef5':
+              autoIconBackground(data,bounds,resolution));
           ctx.fillRect(0,0,180,180);
         }
         // Trim transparent padding and enlarge slightly to the icon edges.
@@ -1709,6 +1717,19 @@
       dockVisible=96;
       $('dock-grid').scrollTop=0;
       renderDockMatches();
+    });
+    // Return / Search on the iPhone keyboard finishes the search and
+    // dismisses the keyboard without clearing the text or chosen filters.
+    $('dock-search').addEventListener('keydown',event=>{
+      if(event.key==='Enter'){
+        event.preventDefault();
+        $('dock-search').blur();
+      }
+    });
+    // Also handle browsers that dispatch a native search event rather than
+    // a keyboard Enter event for the mobile Search key.
+    $('dock-search').addEventListener('search',()=>{
+      $('dock-search').blur();
     });
     $('dock-grid').addEventListener('scroll',()=>{
       dockAutoFillBudget=4;
