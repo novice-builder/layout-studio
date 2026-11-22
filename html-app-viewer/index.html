@@ -56,6 +56,7 @@
     #installed-setup .panel { width:min(100%,410px); }
     #installed-setup h2 {font-size:23px;letter-spacing:-.5px;margin:0 0 9px;}
     #installed-setup p {color:#64748b;font-size:14px;line-height:1.6;margin:0;}
+    #installed-setup .html-change-hint {margin:13px 2px 0;color:#8b99ac;font-size:12px;line-height:1.5;text-align:center;}
     .loader { position:fixed;inset:0;background:white;z-index:8;display:none;place-items:center;color:#93a1b3;font-size:13px; }
     .spin { width:23px;height:23px;border:2px solid #dbe4ef;border-top-color:#3465cf;border-radius:50%;animation:spin 800ms linear infinite;margin:0 auto 12px; }
     @keyframes spin {to{transform:rotate(360deg)}}
@@ -304,6 +305,7 @@
       <h2>Choose your HTML file</h2>
       <p id="installed-explanation">This app needs its HTML file once. Choose the file and it will be stored here for future launches.</p>
       <button class="primary" id="installed-choose">Choose HTML file</button>
+      <p class="html-change-hint">To change the HTML later, triple-tap anywhere on the screen.</p>
       <input id="installed-input" type="file" accept=".html,.htm,text/html" class="hidden">
       <div class="error hidden" id="installed-error" role="alert"></div>
     </div>
