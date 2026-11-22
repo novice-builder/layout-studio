@@ -427,24 +427,68 @@
     function availableCatalogue(style) {
       return dockCatalogues.get(cataloguePrefix(style))||null;
     }
+    // Shared topic filters work across every selected style, including icon
+    // sets that do not provide native category metadata.
+    const ICON_TOPICS = [
+      ['technology','Apps & technology','app api code computer laptop monitor smartphone mobile phone browser terminal keyboard mouse wifi internet server database chip device website software settings circuit router'],
+      ['files','Files & folders','file files folder directory document archive download upload zip pdf json clipboard copy paste storage trash save backup'],
+      ['work','Work & productivity','work office briefcase calendar clock task checklist note notes notebook meeting schedule planning plan chart table timer search'],
+      ['media','Photography & video','camera photo photograph image picture gallery film video movie record recorder lens aperture flash pixel selfie'],
+      ['music','Music & audio','music sound audio headphone headphones microphone speaker song piano guitar radio volume podcast melody'],
+      ['games','Games & entertainment','game gaming controller joystick puzzle dice chess cards toy play arcade console balloon party'],
+      ['travel','Transport & travel','car vehicle train bus taxi airplane plane aircraft ship boat bicycle bike motorcycle truck travel compass map location route hotel luggage suitcase'],
+      ['finance','Finance & shopping','money bank wallet coin credit cash dollar shopping cart bag receipt currency shop store market payment'],
+      ['food','Food & drink','food coffee tea water drink burger pizza fruit restaurant cup fork spoon cookie apple banana bread cake'],
+      ['health','Health & fitness','health heart medical doctor hospital medicine pill fitness gym exercise sport sports weight running dumbbell pharmacy'],
+      ['people','People & communication','person people user profile family baby human hand chat message email contact call speech smile face'],
+      ['nature','Nature & weather','sun rain cloud weather wind snow storm earth moon star plant flower tree leaf animal cat dog bird fish mountain'],
+      ['home','Home & everyday','home house key lock door lamp light bed chair sofa desk hammer wrench broom cupboard fridge cleaning'],
+      ['design','Design & creative','design color colour palette paint brush pen pencil vector shape layout art drawing graphic graphics layers canvas ruler'],
+      ['navigation','Arrows & navigation','arrow chevron back forward left right down up menu navigation link direction compass route'],
+      ['emotions','Faces & emotions','smile laugh happy sad cry angry love emoji face thinking surprised kiss blush grin']
+    ].map(([id,label,words])=>({
+      id,label,keywords:words.split(' ')
+    }));
+    function inTopic(name,labels,topic) {
+      const tokens=name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      const sourceLabels=labels.join(' ').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      const all=tokens.concat(sourceLabels);
+      return topic.keywords.some(keyword=>all.some(word=>
+        word===keyword ||
+        (keyword.length>=4 && (word.startsWith(keyword) || keyword.startsWith(word) && word.length>=5))));
+    }
     function updateCategoryOptions() {
       const select=$('dock-category');
       const original=select.value;
-      const names=new Map();
+      const labels=new Map();
       for(const style of styleScope()) {
         const catalogue=availableCatalogue(style);
         if(!catalogue)continue;
-        for(const label of Object.keys(catalogue.categories||{})) {
-          const normalized=categoryKey(label);
-          if(normalized&&!names.has(normalized))names.set(normalized,label);
+        for(const key of Object.keys(catalogue.categories||{})) {
+          const normalized=categoryKey(key);
+          if(normalized&&!labels.has(normalized))labels.set(normalized,key);
         }
       }
-      const opts=[new Option('All categories','')];
-      for(const [key,label] of [...names].sort((a,b)=>a[1].localeCompare(b[1])))
-        opts.push(new Option(label,key));
-      select.replaceChildren(...opts);
-      select.value=names.has(original)?original:'';
-      select.disabled=names.size===0;
+      const defaultOption=new Option('All categories','');
+      const topics=document.createElement('optgroup');
+      topics.label='Topics · across all styles';
+      for(const topic of ICON_TOPICS)
+        topics.append(new Option(topic.label,'topic:'+topic.id));
+      const children=[defaultOption,topics];
+      if(labels.size){
+        const native=document.createElement('optgroup');
+        native.label='Library categories';
+        for(const [key,label] of [...labels].sort((a,b)=>a[1].localeCompare(b[1]))) {
+          const heading=label.replace(/\b[a-z]/g,c=>c.toUpperCase());
+          native.append(new Option(heading,'native:'+key));
+        }
+        children.push(native);
+      }
+      select.replaceChildren(...children);
+      if(original && [...select.options].some(option=>option.value===original))
+        select.value=original;
+      else select.value='';
+      select.disabled=false;
     }
     function setDockPreview(choice,data) {
       $('dock-preview').replaceChildren();
@@ -580,8 +624,21 @@
       const catalogue=availableCatalogue(style);
       const all=catalogue?.names ||
         (style.startsWith('withicons-')?DEFAULT_DOCK:[]);
-      const restricted=category
-        ? (catalogue?.categories?.[category]||[]) : all;
+      let restricted=all;
+      if(category.startsWith('native:')) {
+        restricted=catalogue?.categories?.[category.slice(7)]||[];
+      } else if(category.startsWith('topic:')) {
+        const topic=ICON_TOPICS.find(item=>item.id===category.slice(6));
+        if(topic) {
+          const lookup=new Map();
+          for(const [title,list] of Object.entries(catalogue?.categories||{}))
+            for(const name of list) {
+              if(!lookup.has(name))lookup.set(name,[]);
+              lookup.get(name).push(title);
+            }
+          restricted=all.filter(name=>inTopic(name,lookup.get(name)||[],topic));
+        }
+      }
       const terms=query.split(/\s+/).filter(Boolean);
       return restricted.filter(name=>terms.every(term=>
         name.replace(/-/g,' ').includes(term)));
