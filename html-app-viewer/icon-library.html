@@ -222,7 +222,7 @@ const toast=m=>{const e=$("toast");e.textContent=m;e.classList.add("show");clear
 async function fetchJSON(path){const r=await fetch(DATA_ROOT+path,{cache:"force-cache"});if(!r.ok)throw Error("HTTP "+r.status+": "+path);return r.json()}
 async function getIndex(lib){
  if(indexes.has(lib))return indexes.get(lib);
- const p=fetchJSON(lib+"/index.json").then(idx=>{
+ const p=fetchJSON(lib==="iconoir"?"../icon-library/iconoir/catalog.json":lib+"/index.json").then(idx=>{
   idx.lookup=Object.create(null);idx.categoryOf=Object.create(null);idx.aliasOf=Object.create(null);
   idx.names.forEach((n,i)=>{idx.lookup[n]=i;if(lib.startsWith("withicons-")&&WITH_META[n]){idx.categoryOf[n]=catLabel(WITH_META[n][0]);idx.aliasOf[n]=WITH_META[n].slice(1).join(" ")}});
   Object.entries(idx.categories||{}).forEach(([c,names])=>names.forEach(n=>{if(n in idx.lookup)idx.categoryOf[n]=c}));
@@ -234,6 +234,13 @@ async function getIndex(lib){
 async function getIcon(lib,name){
  const idx=await getIndex(lib),pos=idx.lookup[name];
  if(pos===undefined)throw Error("Icon not found: "+lib+":"+name);
+ if(lib==="iconoir"){
+  const shard=name.charAt(0).toLowerCase(),key="iconoir-full/"+shard;
+  if(!shards.has(key))shards.set(key,fetchJSON("../icon-library/iconoir/"+shard+".json").catch(e=>{shards.delete(key);throw e}));
+  const data=await shards.get(key);
+  if(typeof data[name]!=="string")throw Error("Icon unavailable: "+name);
+  return {icon:{raw:data[name]},idx};
+ }
  const n=Math.floor(pos/(idx.shardSize||250)),key=lib+"/"+n;
  if(!shards.has(key))shards.set(key,fetchJSON(key+".json").catch(e=>{shards.delete(key);throw e}));
  const data=await shards.get(key);
@@ -241,6 +248,11 @@ async function getIcon(lib,name){
  return {icon:data.icons[name],idx};
 }
 function svgFrom(icon,idx,{color=state.color,stroke=state.stroke}={}){
+ if(icon.raw){
+  let svg=icon.raw.replace(/currentColor/g,color);
+  if(stroke!=="1.5")svg=svg.replace(/stroke-width="1\.5"/g,'stroke-width="'+stroke+'"');
+  return svg;
+ }
  const w=icon.width||idx.width||24,h=icon.height||idx.height||24;
  const x=icon.left||0,y=icon.top||0;
  let body=icon.body||"";
