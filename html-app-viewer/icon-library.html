@@ -4,7 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f8f9fb">
-<title>Icon Library — SVG & PNG</title>
+<title>Icon Library</title>
+<meta name="apple-mobile-web-app-title" content="Icon Library">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link id="touchIcon" rel="apple-touch-icon" sizes="192x192">
+<link id="faviconIcon" rel="icon" type="image/png">
+<link id="webAppManifest" rel="manifest">
 <style>
 :root{color-scheme:light;--ink:#192235;--muted:#707b90;--line:#e1e5ec;--blue:#366df2;--pale:#f4f6f9;--shadow:0 20px 65px #0d1b3630}
 *{box-sizing:border-box}
@@ -75,6 +81,13 @@ main{max-width:1400px;margin:auto;padding:16px 22px 80px}
 .color-input{display:flex;gap:7px;align-items:center}
 .color-input input[type=color]{width:43px;height:40px;padding:3px;border:1px solid #d8e0eb;background:white;border-radius:8px;flex-shrink:0}
 .note{font-size:11px;color:#7d8797;margin:8px 0}
+.webapp-section{margin-top:21px;padding-top:2px;border-top:1px solid #e5e9f0}
+.webapp-choice{display:flex;align-items:center;gap:13px;padding:10px 0 4px}
+.webapp-choice img{width:52px;height:52px;border:1px solid #e3e8ef;border-radius:12px;background:#f7f8fa;object-fit:cover;flex-shrink:0}
+.webapp-choice strong{display:block;font-size:13px;font-weight:650;line-height:1.3;overflow-wrap:anywhere}
+.webapp-choice small{display:block;color:#7e899a;font-size:11px;margin-top:3px}
+.webapp-section .actions{margin:12px 0 7px}
+.webapp-section .note{line-height:1.55}
 .subheading{font-weight:700;font-size:13px;margin:17px 0 7px}
 #svgCode{display:block;width:100%;height:114px;min-height:114px;resize:vertical;border:1px solid #dae1ed;background:#f7f9fc;border-radius:10px;padding:10px;font:11px/1.5 ui-monospace,Consolas,monospace;color:#29374d}
 .actions{display:flex;gap:8px;margin:10px 0 13px}
@@ -192,6 +205,21 @@ main{padding:14px 13px 65px}
    <button class="action" id="downloadPng">Download PNG</button>
   </div>
   <p class="note">On iPhone, Share PNG opens the iOS share sheet when available, including Save to Files.</p>
+  <div class="webapp-section">
+   <div class="subheading">Home Screen Web App</div>
+   <div class="webapp-choice">
+    <img id="webAppPreview" alt="Current Home Screen web app icon">
+    <div>
+     <strong id="webAppSelectedLabel">Default icon</strong>
+     <small>Default Home Screen name: Icon Library</small>
+    </div>
+   </div>
+   <div class="actions">
+    <button class="action primary" id="setWebAppIcon" type="button">Set as Web App Icon</button>
+    <button class="action" id="resetWebAppIcon" type="button">Reset icon</button>
+   </div>
+   <p class="note">After setting an icon, use Safari’s Share → Add to Home Screen and check the icon preview before tapping Add. Safari may not honour a dynamically selected icon on every iOS version. Already installed icons need to be removed and added again to change their appearance.</p>
+  </div>
  </div>
 </section>
 <div class="toast" id="toast" role="status"></div>
@@ -214,6 +242,70 @@ const DATA_ROOT=location.protocol==="file:"?"https://novice-builder.github.io/la
 const $=id=>document.getElementById(id);
 const indexes=new Map(),shards=new Map(),limits=new Map();
 const state={lib:"all",category:"",style:"all",q:"",mode:"svg",selected:null,color:"#192338",stroke:"1.5",size:256,bg:"transparent"};
+const WEBAPP_ICON_STORAGE="icon-library-webapp-icon-v1";
+let currentWebAppIcon=null;
+let defaultWebAppIcon="";
+function makeDefaultWebAppIcon(){
+ const size=192,c=document.createElement("canvas");c.width=c.height=size;
+ const g=c.getContext("2d");
+ g.fillStyle="#f4f6fa";g.fillRect(0,0,size,size);
+ g.fillStyle="#233047";
+ const boxes=[[46,48],[103,48],[46,105],[103,105]];
+ for(const [x,y] of boxes){g.beginPath();g.roundRect(x,y,43,43,10);g.fill()}
+ g.fillStyle="#ffffff";
+ g.fillRect(63,62,10,10);g.fillRect(120,62,10,10);
+ g.fillRect(63,119,10,10);g.fillRect(120,119,10,10);
+ return c.toDataURL("image/png");
+}
+function getStoredWebAppIcon(){
+ try{
+  const value=JSON.parse(localStorage.getItem(WEBAPP_ICON_STORAGE)||"null");
+  if(value&&typeof value.dataURL==="string"&&value.dataURL.startsWith("data:image/png;base64,")&&typeof value.lib==="string"&&typeof value.name==="string")return value;
+ }catch(e){}
+ return null;
+}
+function applyWebAppIcon(value){
+ const dataURL=value?.dataURL||defaultWebAppIcon;
+ if(!dataURL)return;
+ currentWebAppIcon=value||null;
+ $("touchIcon").href=dataURL;
+ $("faviconIcon").href=dataURL;
+ const manifest={
+  id:location.pathname,
+  name:"Icon Library",short_name:"Icon Library",
+  start_url:location.pathname,scope:new URL("./",location.href).pathname,
+  display:"standalone",background_color:"#fafbfc",theme_color:"#f8f9fb",
+  icons:[{src:dataURL,sizes:"192x192",type:"image/png",purpose:"any"}]
+ };
+ $("webAppManifest").href="data:application/manifest+json;charset=utf-8,"+encodeURIComponent(JSON.stringify(manifest));
+ refreshWebAppChoice();
+}
+function refreshWebAppChoice(){
+ const img=$("webAppPreview"),label=$("webAppSelectedLabel");
+ if(!img||!label)return;
+ img.src=currentWebAppIcon?.dataURL||defaultWebAppIcon;
+ const item=currentWebAppIcon;
+ label.textContent=item?title(item.name)+" · "+(LIBRARIES.find(x=>x.id===item.lib)?.label||item.lib):"Default icon";
+}
+function createHomeScreenPNG(svg){
+ return new Promise((resolve,reject)=>{
+  const c=document.createElement("canvas");c.width=c.height=192;
+  const g=c.getContext("2d");if(!g){reject(Error("Canvas unavailable"));return}
+  g.fillStyle="#ffffff";g.fillRect(0,0,192,192);
+  const im=new Image();
+  im.onload=()=>{try{g.drawImage(im,25,25,142,142);resolve(c.toDataURL("image/png"))}catch(e){reject(e)}};
+  im.onerror=()=>reject(Error("Unable to render the selected icon"));
+  im.src=svgURI(svg);
+ });
+}
+async function setSelectedWebAppIcon(){
+ if(!state.selected)throw Error("Select an icon first");
+ const dataURL=await createHomeScreenPNG(await selectedSVG());
+ const value={lib:state.selected.lib,name:state.selected.name,color:state.color,stroke:state.stroke,dataURL};
+ try{localStorage.setItem(WEBAPP_ICON_STORAGE,JSON.stringify(value))}catch(e){toast("Icon set, but browser storage is unavailable")}
+ applyWebAppIcon(value);
+ toast("Web app icon selected — check Safari’s Add to Home Screen preview");
+}
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const title=s=>s.split("-").map(w=>w==="3d"?"3D":w==="ai"?"AI":w.charAt(0).toUpperCase()+w.slice(1)).join(" ");
 const catLabel=s=>({ai:"AI","indian-festivals":"Indian festivals","lunar-new-year":"Lunar New Year",valentines:"Valentine's Day"}[s]||title(s));
@@ -470,7 +562,17 @@ $("copySvg").onclick=async()=>{try{if(await copyText(await selectedSVG()))toast(
 $("downloadSvg").onclick=async()=>{try{const svg=await selectedSVG(),name=state.selected.name+".svg";await shareOrDownload(new File([svg],name,{type:"image/svg+xml"}),false)}catch(e){toast(e.message)}};
 $("sharePng").onclick=async()=>{try{const blob=await createPNG(await selectedSVG());await shareOrDownload(new File([blob],state.selected.name+".png",{type:"image/png"}))}catch(e){toast(e.message)}};
 $("downloadPng").onclick=async()=>{try{const blob=await createPNG(await selectedSVG());await shareOrDownload(new File([blob],state.selected.name+".png",{type:"image/png"}),false)}catch(e){toast(e.message)}};
+$("setWebAppIcon").onclick=async()=>{
+ const btn=$("setWebAppIcon");btn.disabled=true;btn.textContent="Setting icon…";
+ try{await setSelectedWebAppIcon()}catch(e){toast("Could not set web app icon: "+e.message)}
+ finally{btn.disabled=false;btn.textContent="Set as Web App Icon"}
+};
+$("resetWebAppIcon").onclick=()=>{
+ try{localStorage.removeItem(WEBAPP_ICON_STORAGE)}catch(e){}
+ applyWebAppIcon(null);toast("Default web app icon restored");
+};
 async function boot(){
+ try{defaultWebAppIcon=makeDefaultWebAppIcon();applyWebAppIcon(getStoredWebAppIcon())}catch(e){console.warn("Home Screen icon unavailable:",e)}
  const results=await Promise.all(LIBRARIES.map(async l=>{try{return {id:l.id,index:await getIndex(l.id)}}catch(e){return {id:l.id,error:e.message}}}));
  const failed=[];for(const r of results){if(r.index)loaded.set(r.id,r.index);else failed.push(r.id)}
  renderCategories();render();
