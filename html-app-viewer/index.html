@@ -244,7 +244,7 @@
     const dockRequests = new Map();
     let dockPrefix = 'withicons-dock';
     let dockVisible = 96;
-    let dockChoice = null, dockImage = null;
+    let dockChoice = null, pendingDockChoice = null, dockImage = null;
     let chosenHtml = null, chosenFileName = null, chosenFileSize = 0;
 
     function dockUrl(prefix,name) {
@@ -362,7 +362,7 @@
       for(const name of shown) {
         const button=document.createElement('button');
         button.type='button';
-        const selected=dockChoice?.prefix===dockPrefix && dockChoice?.name===name;
+        const selected=pendingDockChoice?.prefix===dockPrefix && pendingDockChoice?.name===name;
         button.className='dock-item'+(selected?' selected':'');
         button.dataset.name=name;
         const pic=document.createElement('img');
@@ -387,7 +387,7 @@
       }
       grid.replaceChildren(fragment);
       $('dock-more').classList.toggle('hidden',shown.length>=matches.length);
-      $('dock-use').disabled=!dockChoice||dockChoice.prefix!==dockPrefix;
+      $('dock-use').disabled=!pendingDockChoice||pendingDockChoice.prefix!==dockPrefix;
       const gotAll=dockCatalogues.has(ICON_STYLES[dockPrefix].prefix);
       $('dock-info').textContent=gotAll
         ? 'Showing '+shown.length+' of '+matches.length+
@@ -399,6 +399,7 @@
       $('dock-dialog').setAttribute('aria-hidden','false');
       $('dock-library').value=dockChoice?.prefix||dockPrefix;
       dockPrefix=$('dock-library').value;
+      pendingDockChoice=dockChoice;
       $('dock-search').value='';
       dockVisible=96;
       renderDockMatches();
@@ -829,6 +830,20 @@
       clearError(false);
       const name=$('app-name').value.trim().slice(0,60)||
         (chosenFileName ? chosenFileName.replace(/\.html?$/i,'') : 'HTML App');
+      // Reuse the staged HTML if the setup page was reopened and only its
+      // icon or app name was changed. Never silently turn that into an empty app.
+      if(chosenHtml===null && urlId){
+        const staged=getStaged(urlId);
+        if(staged?.meta.id===urlId){
+          try{
+            chosenHtml=await unpackCookies(staged);
+            chosenFileName=staged.meta.name;
+          }catch(error){
+            showError('The previously selected HTML needs to be chosen again.',false);
+            return;
+          }
+        }
+      }
       if(chosenHtml===null && !dockImage){
         showError('Choose an HTML file or an icon before preparing the app.',false);
         return;
@@ -975,6 +990,7 @@
     });
     $('dock-library').addEventListener('change',event=>{
       dockPrefix=event.target.value;
+      pendingDockChoice=dockChoice?.prefix===dockPrefix?dockChoice:null;
       dockVisible=96;
       renderDockMatches();
       refreshDockCollection();
@@ -988,7 +1004,7 @@
     $('dock-grid').addEventListener('click',event=>{
       const button=event.target.closest('button[data-name]');
       if(!button||button.disabled)return;
-      dockChoice={prefix:dockPrefix,name:button.dataset.name};
+      pendingDockChoice={prefix:dockPrefix,name:button.dataset.name};
       renderDockMatches();
     });
     $('dock-remove').addEventListener('click',()=>{
@@ -997,13 +1013,13 @@
       closeDockPicker();
     });
     $('dock-use').addEventListener('click',async()=>{
-      if(!dockChoice||dockChoice.prefix!==dockPrefix)return;
+      if(!pendingDockChoice||pendingDockChoice.prefix!==dockPrefix)return;
       const button=$('dock-use');
       button.disabled=true;
       button.textContent='Preparing icon…';
       try{
-        const data=await iconToPng(dockChoice);
-        saveDockChoice(dockChoice,data);
+        const data=await iconToPng(pendingDockChoice);
+        saveDockChoice(pendingDockChoice,data);
         hidePreparedStatus();
         closeDockPicker();
       }catch(error){
