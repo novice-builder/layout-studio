@@ -452,13 +452,67 @@
 
     // Only previewed icons are embedded into the viewer's local Cache Storage.
     // The installed Home Screen app does not receive this catalogue or cache.
-    const ICON_CACHE = 'html-viewer-icons-v1';
+    const ICON_CACHE = 'html-viewer-icons-v2';
+    const LOCAL_ICON_LIBRARY_VERSION='2026-11-23';
+    // Complete self-hosted Iconify collections. Each manifest is small; the
+    // SVG definitions are in local JSON chunks and fetched only as needed.
+    const localIconShardCache=new Map();
+    const localIconShardRequests=new Map();
+    const MAX_LOCAL_ICON_SHARDS=16;
+    function localLibraryUrl(prefix,file){
+      return new URL('./icon-sets/'+prefix+'/'+file,location.href).href;
+    }
+    async function localIconShard(prefix,index) {
+      const cacheKey=prefix+':'+index;
+      if(localIconShardCache.has(cacheKey)){
+        const cached=localIconShardCache.get(cacheKey);
+        localIconShardCache.delete(cacheKey);
+        localIconShardCache.set(cacheKey,cached);
+        return cached;
+      }
+      if(localIconShardRequests.has(cacheKey))
+        return localIconShardRequests.get(cacheKey);
+      const promise=(async()=>{
+        const url=localLibraryUrl(prefix,index+'.json');
+        const response=await fetch(url,{cache:'force-cache'});
+        if(!response.ok)throw new Error('Local icon asset HTTP '+response.status);
+        const shard=await response.json();
+        if(shard.prefix!==prefix || !shard.icons || typeof shard.icons!=='object')
+          throw new Error('Local icon pack is incomplete.');
+        localIconShardCache.set(cacheKey,shard);
+        // Bound iPhone memory usage when browsing many icon styles. Files
+        // remain in the HTTP cache and can be reloaded if needed.
+        while(localIconShardCache.size>MAX_LOCAL_ICON_SHARDS)
+          localIconShardCache.delete(localIconShardCache.keys().next().value);
+        return shard;
+      })();
+      localIconShardRequests.set(cacheKey,promise);
+      try{return await promise;}
+      finally{localIconShardRequests.delete(cacheKey);}
+    }
+    async function iconSvgFromLocalLibrary(choice) {
+      const catalogue=await loadDockCollection(choice.prefix);
+      if(!catalogue.local)return null;
+      const pos=catalogue.nameIndex.get(choice.name);
+      if(pos===undefined)throw new Error('Icon missing from local collection.');
+      const shard=await localIconShard(choice.prefix,
+        Math.floor(pos/catalogue.shardSize));
+      const icon=shard.icons[choice.name];
+      if(!icon||typeof icon.body!=='string')
+        throw new Error('Icon missing from local SVG pack.');
+      const w=icon.width||shard.width||catalogue.width||24;
+      const h=icon.height||shard.height||catalogue.height||24;
+      return '<svg xmlns="http://www.w3.org/2000/svg" '+
+        'xmlns:xlink="http://www.w3.org/1999/xlink" '+
+        'width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" '+
+        'color="#243247">'+icon.body+'</svg>';
+    }
     const queuedPreviews = [];
     let activePreviewRequests = 0;
     let previewObserver = null;
     // Failed previews stay hidden for 15 minutes instead of reappearing as
     // empty tiles whenever the search, library or category changes.
-    const FAILED_ICON_STORE = 'hav_failed_icon_previews_v1';
+    const FAILED_ICON_STORE = 'hav_failed_icon_previews_v2';
     const FAILED_ICON_TTL = 15 * 60 * 1000;
     const failedIconPreviews = new Map();
     try {
@@ -509,8 +563,14 @@
       const count=$('dock-info');
       if(!count)return;
       const scope=dockPrefix==='all'?'All libraries':ICON_STYLES[dockPrefix]?.name||'';
-      const suffix=missing?' · '+missing+' unavailable hidden':'';
-      count.textContent=loaded+' loaded · '+scope+suffix;
+      // "30 loaded" was previously mistaken for the library's full size;
+      // make the requested batch and complete catalogue explicit.
+      const total=dockTotalMatches;
+      const attempted=Math.min(dockRenderedCount,total);
+      const available=Math.max(0,total-missing);
+      const suffix=missing?' · '+missing+' failed previews':'';
+      count.textContent=loaded+' loaded · '+attempted+' of '+total+
+        ' icons listed · '+scope+suffix;
     }
 
     function dockUrls(prefix,name) {
@@ -534,6 +594,15 @@
     async function embeddedIconSvg(choice) {
       if(!choice || !ICON_STYLES[choice.prefix] || !/^[a-z0-9-]+$/.test(choice.name))
         throw new Error('Invalid icon choice.');
+      // First use the local, complete SVG collection on this very GitHub
+      // Pages site. This avoids individual external API requests and their
+      // rate limits. Retain the older external source only as a fallback.
+      try{
+        const local=await iconSvgFromLocalLibrary(choice);
+        if(local)return local;
+      }catch(error){
+        console.warn('Local icon asset could not be used:',choice.prefix,choice.name,error);
+      }
       const key=iconStorageKey(choice.prefix,choice.name);
       let cache=null;
       if('caches' in window) {
@@ -825,56 +894,62 @@
       const key=cataloguePrefix(style);
       if(!key)throw new Error('Unknown icon library.');
       if(dockCatalogues.has(key))return dockCatalogues.get(key);
-      try{
-        const stored=JSON.parse(localStorage.getItem('hav_icon_catalogue_v2_'+key)||'null');
-        if(stored && Array.isArray(stored.names) && stored.names.length>=50 &&
-           stored.names.every(n=>typeof n==='string'&&/^[a-z0-9-]+$/.test(n))) {
-          const catalogue={names:stored.names,categories:stored.categories||{}};
-          dockCatalogues.set(key,catalogue);
-          return catalogue;
-        }
-      }catch(err){console.warn('Icon categories not cached:',err);}
       if(dockRequests.has(key))return dockRequests.get(key);
       const promise=(async()=>{
-        try {
+        try{
+          // All names, categories and SVG positions come from a complete
+          // source library, hosted alongside the HTML viewer.
+          const url=localLibraryUrl(key,'index.json');
+          const response=await fetch(url,{cache:'force-cache'});
+          if(!response.ok)throw new Error('Local catalogue HTTP '+response.status);
+          const data=await response.json();
+          if(data.prefix!==key || !Array.isArray(data.names) ||
+             data.names.length<50 || !Number.isInteger(data.shardSize) ||
+             data.shardSize<1)
+            throw new Error('Local catalogue is incomplete.');
+          const names=data.names.filter(n=>typeof n==='string'&&
+            /^[a-z0-9-]+$/.test(n));
+          if(names.length!==data.names.length)throw new Error('Invalid local icon names.');
+          const categories={};
+          for(const [label,list] of Object.entries(data.categories||{})){
+            if(!Array.isArray(list))continue;
+            const normalized=categoryKey(label);
+            if(normalized)categories[normalized]=list.filter(
+              name=>typeof name==='string'&&/^[a-z0-9-]+$/.test(name));
+          }
+          const catalogue={names,categories,local:true,shardSize:data.shardSize,
+            width:data.width,height:data.height,
+            nameIndex:new Map(names.map((name,i)=>[name,i]))};
+          dockCatalogues.set(key,catalogue);
+          return catalogue;
+        }catch(error){
+          console.warn('Local icon catalogue unavailable, using API fallback:',key,error);
+          // The old external catalogue remains as a fallback during initial
+          // publication, instead of leaving every style empty.
           const response=await fetch(DOCK_API+'/collection?prefix='+encodeURIComponent(key),
-            {mode:'cors'});
-          if(!response.ok)throw new Error('Icon catalogue unavailable (HTTP '+response.status+').');
+            {mode:'cors',cache:'force-cache'});
+          if(!response.ok)
+            throw new Error('Icon catalogue unavailable (HTTP '+response.status+').');
           const result=await response.json();
           const categories={};
           const availableNames=[];
-          const addName=(name)=>{
-            if(typeof name==='string' && /^[a-z0-9-]+$/.test(name))
+          const addName=name=>{
+            if(typeof name==='string'&&/^[a-z0-9-]+$/.test(name))
               availableNames.push(name);
           };
           for(const name of result.uncategorized||[])addName(name);
-          for(const [label,list] of Object.entries(result.categories||{})) {
+          for(const [label,list] of Object.entries(result.categories||{})){
             if(!Array.isArray(list))continue;
-            const validated=list.filter(n=>typeof n==='string'&&/^[a-z0-9-]+$/.test(n));
-            for(const name of validated)addName(name);
+            const valid=list.filter(n=>typeof n==='string'&&/^[a-z0-9-]+$/.test(n));
+            valid.forEach(addName);
             const normalized=categoryKey(label);
-            if(normalized)categories[normalized]=
-              [...new Set([...(categories[normalized]||[]),...validated])];
+            if(normalized)categories[normalized]=valid;
           }
           const names=[...new Set(availableNames)].sort();
-          if(names.length<50)throw new Error('Icon catalogue was incomplete.');
-          const catalogue={names,categories};
+          if(names.length<50)throw new Error('External icon catalogue was incomplete.');
+          const catalogue={names,categories,local:false};
           dockCatalogues.set(key,catalogue);
-          try{
-            localStorage.setItem('hav_icon_catalogue_v2_'+key,JSON.stringify(catalogue));
-          }catch(err){console.warn('Icon category cache unavailable:',err);}
           return catalogue;
-        }catch(error){
-          // Old caches contain the names only. Use those if the user is offline.
-          try {
-            const old=JSON.parse(localStorage.getItem('hav_icon_names_'+key)||'null');
-            if(Array.isArray(old) && old.length>=50) {
-              const catalogue={names:old,categories:{}};
-              dockCatalogues.set(key,catalogue);
-              return catalogue;
-            }
-          }catch(err){}
-          throw error;
         }
       })();
       dockRequests.set(key,promise);
