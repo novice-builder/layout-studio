@@ -266,128 +266,196 @@
         });
       } finally { db.close(); }
     }
-    // Injected into each displayed page: document.write removes the original document's listeners.
-    function installFourFingerUpdater(appId) {
+    // Inserted into the opened HTML, so its listeners survive document.write().
+    // The HTML saved in IndexedDB remains unchanged.
+    function installTripleTapUpdater(appId) {
       'use strict';
-      if (!appId || !/^[a-z0-9]{12,32}$/.test(appId)) return;
-      if (window.__htmlAppFourFingerUpdater) return;
-      window.__htmlAppFourFingerUpdater = true;
+      if (!/^[a-z0-9]{12,32}$/.test(appId)) return;
+      if (window.__htmlAppTripleTapUpdater) return;
+      window.__htmlAppTripleTapUpdater = true;
 
-      const HOLD_MS = 2000;
-      const MOVE_LIMIT = 32;
+      const host = document.createElement('div');
+      host.setAttribute('data-html-app-update-dialog', 'true');
+      host.style.setProperty('position', 'fixed', 'important');
+      host.style.setProperty('inset', '0', 'important');
+      host.style.setProperty('z-index', '2147483647', 'important');
+      host.style.setProperty('display', 'none', 'important');
+      host.style.setProperty('pointer-events', 'auto', 'important');
+      const shadow = host.attachShadow({mode:'closed'});
+      shadow.innerHTML = [
+        '<style>',
+        ':host{color-scheme:light;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}',
+        '*{box-sizing:border-box;}',
+        '.shade{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;',
+        'background:rgba(14,22,36,.48);padding:20px;padding-top:calc(20px + env(safe-area-inset-top,0px));',
+        'padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));}',
+        '.panel{width:min(100%,340px);border-radius:17px;background:#fff;color:#17212f;',
+        'padding:21px 19px 17px;box-shadow:0 18px 70px rgba(0,0,0,.23);}',
+        'h2{font-size:19px;line-height:1.3;margin:0 0 8px;font-weight:700;}',
+        'p{color:#64748b;font-size:14px;line-height:1.5;margin:0 0 20px;}',
+        '.actions{display:flex;gap:9px;}',
+        'button{font-family:inherit;font-size:15px;font-weight:600;min-height:44px;border:0;',
+        'border-radius:10px;flex:1;cursor:pointer;-webkit-tap-highlight-color:transparent;}',
+        '.cancel{background:#eff2f5;color:#334155;}',
+        '.change{background:#2563eb;color:white;}',
+        'button:disabled{opacity:.5;}',
+        '</style>',
+        '<div class="shade"><div class="panel" role="dialog" aria-modal="true" ',
+        'aria-labelledby="html-update-title">',
+        '<h2 id="html-update-title">Change HTML file?</h2>',
+        '<p>Choose a replacement file for this Home Screen app.</p>',
+        '<div class="actions">',
+        '<button type="button" class="cancel">Cancel</button>',
+        '<button type="button" class="change">Change HTML</button>',
+        '</div></div></div>'
+      ].join('');
+      document.documentElement.appendChild(host);
+      const choose = shadow.querySelector('.change');
+      const cancel = shadow.querySelector('.cancel');
+      const backdrop = shadow.querySelector('.shade');
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = '.html,.htm,text/html';
       input.tabIndex = -1;
       input.setAttribute('aria-hidden','true');
       input.style.display = 'none';
-      (document.body || document.documentElement).appendChild(input);
+      shadow.appendChild(input);
 
-      let tracked = null, timer = null, armed = false, saving = false;
-      function reset() {
-        if (timer !== null) clearTimeout(timer);
-        timer = null;
-        tracked = null;
-        armed = false;
-      }
-      function touchStart(event) {
+      let isOpen = false;
+      let saving = false;
+      let tapStart = null;
+      let tapCount = 0;
+      let lastTapTime = 0;
+      let lastX = 0, lastY = 0;
+
+      function closeMenu() {
         if (saving) return;
-        if (event.touches.length !== 4) {
-          if (tracked) reset();
-          return;
-        }
-        reset();
-        tracked = new Map(Array.from(event.touches, touch =>
-          [touch.identifier, {x:touch.clientX,y:touch.clientY}]));
-        const current = tracked;
-        timer = setTimeout(() => {
-          if (tracked === current) armed = true;
-        }, HOLD_MS);
+        isOpen = false;
+        host.style.setProperty('display','none','important');
       }
-      function touchMove(event) {
-        if (!tracked) return;
-        if (event.touches.length !== 4) { reset(); return; }
-        for (const touch of event.touches) {
-          const first = tracked.get(touch.identifier);
-          if (!first ||
-              Math.hypot(touch.clientX-first.x,touch.clientY-first.y) > MOVE_LIMIT) {
-            reset();
-            return;
-          }
-        }
+      function openMenu() {
+        if (saving || isOpen) return;
+        isOpen = true;
+        tapCount = 0;
+        host.style.setProperty('display','block','important');
       }
-      function touchEnd() {
-        if (!tracked) return;
-        const openPicker = armed;
-        reset();
-        if (openPicker) {
-          // Invoke on actual finger release: iOS requires a user gesture for Files.
-          try { input.click(); }
-          catch (err) { alert('Could not open Files: ' + (err?.message || String(err))); }
+
+      cancel.addEventListener('click',closeMenu);
+      backdrop.addEventListener('click',e => { if (e.target === backdrop) closeMenu(); });
+      choose.addEventListener('click',() => {
+        if (!saving) input.click();
+      });
+      window.addEventListener('keydown',e => {
+        if (e.key === 'Escape' && isOpen) closeMenu();
+      },true);
+
+      // Count three quick single-finger taps anywhere; no permanent touch target.
+      // Observe in the capture phase, without blocking the app's normal controls.
+      window.addEventListener('touchstart',e => {
+        if (isOpen || saving) return;
+        if (e.touches.length !== 1 || e.changedTouches.length !== 1) {
+          tapStart = null; tapCount = 0; return;
         }
-      }
-      window.addEventListener('touchstart',touchStart,{capture:true,passive:true});
-      window.addEventListener('touchmove',touchMove,{capture:true,passive:true});
-      window.addEventListener('touchend',touchEnd,{capture:true,passive:true});
-      window.addEventListener('touchcancel',reset,{capture:true,passive:true});
-      window.addEventListener('pagehide',reset);
+        const t = e.changedTouches[0];
+        tapStart = {id:t.identifier,x:t.clientX,y:t.clientY,time:Date.now()};
+      },{capture:true,passive:true});
+      window.addEventListener('touchmove',e => {
+        if (!tapStart) return;
+        const t = Array.from(e.changedTouches).find(x => x.identifier === tapStart.id);
+        if (!t || Math.hypot(t.clientX-tapStart.x,t.clientY-tapStart.y)>28) {
+          tapStart = null; tapCount = 0;
+        }
+      },{capture:true,passive:true});
+      window.addEventListener('touchend',e => {
+        if (!tapStart || isOpen || saving) return;
+        const t = Array.from(e.changedTouches).find(x => x.identifier === tapStart.id);
+        const started = tapStart;
+        tapStart = null;
+        if (!t || Date.now()-started.time>320 ||
+            Math.hypot(t.clientX-started.x,t.clientY-started.y)>28) {
+          tapCount = 0; return;
+        }
+        const now = Date.now();
+        if (now-lastTapTime<=480 && Math.hypot(t.clientX-lastX,t.clientY-lastY)<=110) {
+          tapCount++;
+        } else {
+          tapCount=1;
+        }
+        lastTapTime=now;
+        lastX=t.clientX; lastY=t.clientY;
+        if (tapCount>=3) openMenu();
+      },{capture:true,passive:true});
+      window.addEventListener('touchcancel',() => {tapStart=null;tapCount=0;},
+        {capture:true,passive:true});
+
+      // A desktop mouse triple-click is useful for testing, but does not
+      // interfere with the iPhone touch sequence.
+      window.addEventListener('click',e => {
+        if (e.detail>=3 && !isOpen && !saving) openMenu();
+      },true);
 
       input.addEventListener('change',async () => {
         const file = input.files && input.files[0];
-        input.value = '';
+        input.value='';
         if (!file) return;
         if (!/\.html?$/i.test(file.name)) {
-          alert('Please choose an HTML (.html or .htm) file.');
+          alert('Choose an .html or .htm file.');
           return;
         }
         saving = true;
+        choose.disabled = true;
+        cancel.disabled = true;
         try {
           const html = await file.text();
           const db = await new Promise((resolve,reject) => {
             const req = indexedDB.open('html-app-viewer-2026',1);
-            req.onupgradeneeded = () => {
-              if (!req.result.objectStoreNames.contains('apps')) {
+            req.onupgradeneeded=() => {
+              if (!req.result.objectStoreNames.contains('apps'))
                 req.result.createObjectStore('apps',{keyPath:'id'});
-              }
             };
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error || new Error('Could not open local app storage.'));
+            req.onsuccess=() => resolve(req.result);
+            req.onerror=() => reject(req.error || new Error('Local storage could not be opened.'));
           });
           try {
             await new Promise((resolve,reject) => {
               const tx = db.transaction('apps','readwrite');
-              tx.objectStore('apps').put({id:appId,name:file.name,html,savedAt:Date.now()});
-              tx.oncomplete = resolve;
-              tx.onerror = () => reject(tx.error || new Error('Could not replace the HTML.'));
-              tx.onabort = () => reject(tx.error || new Error('The update was interrupted.'));
+              tx.objectStore('apps').put({
+                id:appId,name:file.name,html,savedAt:Date.now()
+              });
+              tx.oncomplete=resolve;
+              tx.onerror=() => reject(tx.error || new Error('The HTML could not be saved.'));
+              tx.onabort=() => reject(tx.error || new Error('The update was interrupted.'));
             });
-          } finally { db.close(); }
+          } finally {db.close();}
           location.reload();
         } catch(err) {
           saving = false;
-          alert('Could not replace the HTML. The previous version remains saved.\n' +
+          choose.disabled = false;
+          cancel.disabled = false;
+          alert('Could not change HTML. The previously saved file is unchanged.\n' +
             (err?.message || String(err)));
         }
       });
     }
 
     function showHtml(html,name,id) {
-      // Keep the original full-document rendering. The saved HTML is never altered.
+      // Full-document replacement remains unchanged; inject a hidden updater
+      // into the temporary rendered document, not the stored HTML file.
       const appId = id || urlId;
       if (appId) {
-        const code = '(' + installFourFingerUpdater.toString() + ')(' + JSON.stringify(appId) + ');';
-        const scriptTag = '<scr' + 'ipt data-html-app-updater="1">' + code + '</scr' + 'ipt>';
+        const code = '(' + installTripleTapUpdater.toString() + ')(' + JSON.stringify(appId) + ');';
+        const scriptTag = '<scr' + 'ipt data-html-app-updater="2">' + code + '</scr' + 'ipt>';
         const closing = /<\/body\s*>/gi;
-        let match, insertionPoint = -1;
-        while ((match = closing.exec(html)) !== null) insertionPoint = match.index;
-        html = insertionPoint < 0
-          ? html + scriptTag
-          : html.slice(0,insertionPoint) + scriptTag + html.slice(insertionPoint);
+        let match, point = -1;
+        while ((match=closing.exec(html))!==null) point=match.index;
+        html = point<0 ? html+scriptTag
+          : html.slice(0,point)+scriptTag+html.slice(point);
       }
       document.open();
       document.write(html);
       document.close();
     }
+
     function showInstalledPicker(message) {
       $('loader').style.display = 'none';
       $('installed-setup').style.display = 'flex';
