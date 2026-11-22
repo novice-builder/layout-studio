@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f8fafc">
+  <meta name="apple-mobile-web-app-title" content="HTML App Creator">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta http-equiv="Cache-Control" content="no-cache">
+  <title>HTML App Creator</title>
+  <style>
+    body{font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f7f9;color:#17233c;display:grid;place-items:center;min-height:95dvh;margin:0;text-align:center}
+    .loading{padding:24px}
+    a{color:#215de4}
+  </style>
+</head>
+<body>
+  <div class="loading" id="loading">Opening HTML App Creator…</div>
+  <script>
+    // Keep this address permanent for the Home Screen Safari bookmark.
+    // The full viewer is loaded into this document without redirecting the URL.
+    // New HTML apps still get their own ?app=... identifiers on installation.
+    (async()=>{
+      try{
+        const response=await fetch('./index.html?creator_shell='+Date.now(),{
+          cache:'no-store',credentials:'same-origin'
+        });
+        if(!response.ok)throw new Error('Viewer HTTP '+response.status);
+        const html=await response.text();
+        if(!html.includes('function installTripleTapUpdater') ||
+           !html.includes('id="dock-dialog"'))
+          throw new Error('Viewer contents were incomplete');
+        document.open();
+        document.write(html);
+        document.close();
+      }catch(error){
+        const container=document.getElementById('loading');
+        if(!container)return;
+        container.textContent='';
+        const message=document.createElement('p');
+        message.textContent='Could not open the Creator: '+(error?.message||String(error));
+        const retry=document.createElement('a');
+        retry.href=location.href;
+        retry.textContent='Try again';
+        container.append(message,retry);
+      }
+    })();
+  </script>
+</body>
+</html>
