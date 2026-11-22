@@ -314,7 +314,7 @@
     // Catalogue values hold names and source-defined category membership.
     const dockCatalogues = new Map();
     const dockRequests = new Map();
-    let dockPrefix = 'withicons-dock';
+    let dockPrefix = 'all';
     let dockVisible = 96;
     let dockChoice = null, pendingDockChoice = null, dockImage = null;
     let chosenHtml = null, chosenFileName = null, chosenFileSize = 0;
@@ -783,7 +783,7 @@
     function openDockPicker() {
       $('dock-dialog').classList.add('open');
       $('dock-dialog').setAttribute('aria-hidden','false');
-      $('dock-library').value=dockChoice?.prefix||dockPrefix;
+      $('dock-library').value=dockPrefix;
       dockPrefix=$('dock-library').value;
       pendingDockChoice=null;
       $('dock-search').value='';
