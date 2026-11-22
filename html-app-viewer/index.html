@@ -157,7 +157,11 @@
   </style>
   <script>
     // Keep the loader, rather than the viewer's setup interface, visible while a Home Screen app starts.
-    if (window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)) {
+    // A permanent Creator shortcut may also be added with "Open as Web App".
+    // It must still show the Creator, not the installed HTML-file loader.
+    const creatorEntry = new URLSearchParams(location.search).get('creator') === '1';
+    if (!creatorEntry && (window.navigator.standalone === true ||
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches))) {
       document.documentElement.classList.add('standalone');
     }
   </script>
@@ -268,6 +272,7 @@
     const $ = id => document.getElementById(id);
     const standalone = document.documentElement.classList.contains('standalone');
     let urlId = readId();
+    const creatorMode = !urlId && new URLSearchParams(location.search).get('creator') === '1';
     const te = new TextEncoder();
     const td = new TextDecoder();
 
@@ -285,6 +290,34 @@
       document.title = clean;
       const meta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
       if (meta) meta.setAttribute('content', clean);
+    }
+    function applyCreatorBookmarkIdentity() {
+      // Static identity for the Home Screen Creator shortcut. App metadata is
+      // set separately once Prepare Web App produces a new ?app= URL.
+      setPageName('HTML App Creator');
+      const canvas=document.createElement('canvas');
+      canvas.width=180; canvas.height=180;
+      const ctx=canvas.getContext('2d');
+      if(!ctx)return;
+      function rounded(x,y,w,h,r){
+        ctx.beginPath();
+        ctx.roundRect(x,y,w,h,r);
+        ctx.closePath();
+      }
+      const gradient=ctx.createLinearGradient(0,0,180,180);
+      gradient.addColorStop(0,'#8f97a6');
+      gradient.addColorStop(1,'#232e42');
+      rounded(0,0,180,180,35);ctx.fillStyle=gradient;ctx.fill();
+      rounded(29,39,122,92,19);ctx.fillStyle='#edf2f8';ctx.fill();
+      rounded(39,49,102,69,10);ctx.fillStyle='#273346';ctx.fill();
+      rounded(52,60,76,46,7);ctx.fillStyle='#bbc7d6';ctx.fill();
+      rounded(27,139,126,14,7);ctx.fillStyle='#e9a43c';ctx.fill();
+      rounded(37,142,106,8,4);ctx.fillStyle='#f2c66b';ctx.fill();
+      const tag=document.createElement('link');
+      tag.id='creator-bookmark-icon';tag.rel='apple-touch-icon';
+      tag.setAttribute('sizes','180x180');
+      tag.href=canvas.toDataURL('image/png');
+      document.head.append(tag);
     }
     // The icon picker is optional. It is only active in Safari setup.
     // Dock / other With Icons styles are MIT, Fluent Emoji is MIT, Twemoji is CC BY 4.0.
@@ -1322,6 +1355,7 @@
         }
         urlId=id;
         const url=new URL(location.href);
+        url.searchParams.delete('creator');
         url.searchParams.set('app',id);
         url.hash='';
         history.replaceState(null,'',url.href);
@@ -1517,9 +1551,20 @@
     $('installed-choose').addEventListener('click',() => $('installed-input').click());
     $('installed-input').addEventListener('change',e => { const file=e.target.files?.[0]; if(file) installLocalFile(file); e.target.value=''; });
     $('another').addEventListener('click',() => {
-      const url = new URL(location.href); url.searchParams.delete('app'); url.hash=''; location.assign(url.href);
+      const url = new URL(location.href);
+      url.searchParams.delete('app');
+      url.searchParams.set('creator','1');
+      url.hash='';
+      location.assign(url.href);
     });
-    if (standalone) bootInstalled(); else restoreSafariPreparation();
+    if (creatorMode) {
+      applyCreatorBookmarkIdentity();
+      // Do not restore any previously prepared HTML, app name or icon.
+    } else if (standalone) {
+      bootInstalled();
+    } else {
+      restoreSafariPreparation();
+    }
     registerOffline();
   })();
   </script>
