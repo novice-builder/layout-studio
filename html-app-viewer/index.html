@@ -613,6 +613,10 @@
         : 'Safari default';
     }
     function setHomeIcon(data) {
+      // The permanent Creator bookmark icon must not compete with an app's
+      // selected icon when Safari builds a new Home Screen web app.
+      const creatorLink=document.getElementById('creator-bookmark-icon');
+      if(creatorLink)creatorLink.remove();
       const existing=document.getElementById('dock-apple-touch-icon');
       if(existing)existing.remove();
       if(!data)return;
