@@ -453,12 +453,12 @@
     // Only previewed icons are embedded into the viewer's local Cache Storage.
     // The installed Home Screen app does not receive this catalogue or cache.
     const ICON_CACHE = 'html-viewer-icons-v2';
-    const LOCAL_ICON_LIBRARY_VERSION='2026-11-23';
+    const LOCAL_ICON_LIBRARY_VERSION='2026-11-23-hosted-r2';
     // Complete self-hosted Iconify collections. Each manifest is small; the
     // SVG definitions are in local JSON chunks and fetched only as needed.
     const localIconShardCache=new Map();
     const localIconShardRequests=new Map();
-    const MAX_LOCAL_ICON_SHARDS=16;
+    const MAX_LOCAL_ICON_SHARDS=8;
     function localLibraryUrl(prefix,file){
       const url=new URL('./icon-sets/'+prefix+'/'+file,location.href);
       url.searchParams.set('v',LOCAL_ICON_LIBRARY_VERSION);
@@ -514,7 +514,7 @@
     let previewObserver = null;
     // Failed previews stay hidden for 15 minutes instead of reappearing as
     // empty tiles whenever the search, library or category changes.
-    const FAILED_ICON_STORE = 'hav_failed_icon_previews_v2';
+    const FAILED_ICON_STORE = 'hav_failed_icon_previews_v3';
     const FAILED_ICON_TTL = 15 * 60 * 1000;
     const failedIconPreviews = new Map();
     try {
