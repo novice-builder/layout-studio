@@ -135,6 +135,26 @@
     .dock-item .dock-style-name{display:block;font-size:9px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
     .dock-item.selected .dock-style-name{color:#2358be}
     @media(min-width:700px){.dock-filters{padding-left:25px;padding-right:25px}}
+    /* One close/confirm control and the maximum remaining room for icons. */
+    .dock-head{min-height:0;padding:calc(env(safe-area-inset-top,0px) + 7px) 13px 6px}
+    .dock-head h2{font-size:17px}
+    .dock-close{width:39px;min-width:39px;height:39px;display:grid;place-items:center;font-size:26px;font-weight:400;line-height:1;background:#eef2f7;transition:background .12s}
+    .dock-close.confirm{background:#2563eb;color:#fff;font-size:22px;font-weight:750}
+    .dock-close:disabled{opacity:.55}
+    .dock-filters{padding:7px 10px 6px;gap:6px}
+    .dock-filters .dock-library,.dock-filters .dock-category{min-height:38px;height:38px;padding:7px;font-size:12px}
+    .dock-input{margin:0 10px 4px;min-height:39px;height:39px;font-size:14px}
+    .dock-metadata{display:flex;align-items:center;gap:9px;min-height:20px;padding:0 11px 4px;overflow:hidden}
+    .dock-metadata .dock-hint{padding:0;font-size:10px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+    #dock-info{flex:1}
+    #dock-license{max-width:42%;font-size:9px;text-align:right}
+    .dock-grid{padding:5px 8px 12px;gap:5px;grid-template-columns:repeat(auto-fill,minmax(62px,1fr))}
+    .dock-item{padding:5px 2px 4px;border-radius:9px;gap:3px}
+    .dock-item img{width:min(100%,58px);height:58px}
+    .dock-item span{font-size:9px}
+    .dock-default-icon{width:58px;height:58px;border-radius:12px;display:grid!important;place-items:center;background:linear-gradient(145deg,#e5ebf4,#bdcce0);color:#405c87;font-size:30px!important;font-weight:600}
+    .dock-item.current:not(.selected){border-color:#9fb5d8}
+    @media(min-width:700px){.dock-head{padding-left:20px;padding-right:20px}.dock-filters{padding-left:20px;padding-right:20px}.dock-grid{padding-left:15px;padding-right:15px;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:9px}.dock-item img,.dock-default-icon{width:72px;height:72px}.dock-metadata{padding-left:20px;padding-right:20px}}
   </style>
   <script>
     // Keep the loader, rather than the viewer's setup interface, visible while a Home Screen app starts.
@@ -193,7 +213,7 @@
 
   <section id="dock-dialog" role="dialog" aria-modal="true" aria-labelledby="dock-title" aria-hidden="true">
     <div class="dock-panel">
-      <div class="dock-head"><h2 id="dock-title">Choose App Icon</h2><button type="button" id="dock-close" class="dock-close" aria-label="Close icon picker">×</button></div>
+      <div class="dock-head"><h2 id="dock-title">App icons</h2><button type="button" id="dock-close" class="dock-close" aria-label="Close icon picker">×</button></div>
       <div class="dock-filters">
       <select id="dock-library" class="dock-library" aria-label="Icon style or library">
         <option value="all">All libraries &amp; styles</option>
@@ -215,14 +235,11 @@
       </select>
       </div>
       <input id="dock-search" class="dock-input" type="search" placeholder="Search e.g. camera, folder, code" autocomplete="off" aria-label="Search icons">
-      <div class="dock-hint" id="dock-info">Icons previously viewed can be available offline.</div>
-      <div class="dock-hint" id="dock-license" style="padding-bottom:7px"></div>
-      <div class="dock-grid" id="dock-grid" aria-live="polite"></div>
-      <div class="dock-more-row"><button type="button" class="dock-more" id="dock-more">Load more icons</button></div>
-      <div class="dock-actions">
-        <button type="button" id="dock-remove">Use default</button>
-        <button type="button" id="dock-use" disabled>Use selected icon</button>
+      <div class="dock-metadata">
+        <div class="dock-hint" id="dock-info">Icons previously viewed are cached locally.</div>
+        <div class="dock-hint" id="dock-license"></div>
       </div>
+      <div class="dock-grid" id="dock-grid" aria-live="polite"></div>
     </div>
   </section>
   <!-- This is the ONLY visible interface on an installed app that has not received its HTML yet. -->
@@ -643,20 +660,41 @@
       return restricted.filter(name=>terms.every(term=>
         name.replace(/-/g,' ').includes(term)));
     }
-    function renderDockMatches() {
+    let dockTotalMatches = 0;
+    let dockRendering = false;
+    function syncDockConfirm() {
+      const button=$('dock-close');
+      const selected=!!pendingDockChoice;
+      button.textContent=selected?'✓':'×';
+      button.classList.toggle('confirm',selected);
+      button.setAttribute('aria-label',selected?'Confirm icon selection':'Close icon picker');
+      button.title=selected?'Use selected icon':'Close';
+    }
+    // Advance automatically as the icon grid approaches its end. Existing
+    // tiles stay mounted, avoiding unnecessary preview reloads or scroll jumps.
+    function checkDockScroll() {
       const grid=$('dock-grid');
-      if(previewObserver)previewObserver.disconnect();
-      const previousPosition=grid.scrollTop;
+      if(dockRendering || !$('dock-dialog').classList.contains('open'))return;
+      const count=grid.querySelectorAll('button[data-name]').length;
+      if(count>=dockTotalMatches)return;
+      if(grid.scrollHeight-grid.scrollTop-grid.clientHeight>520)return;
+      dockVisible+=96;
+      renderDockMatches(true);
+    }
+    function renderDockMatches(append=false) {
+      const grid=$('dock-grid');
+      dockRendering=true;
       const search=$('dock-search').value.trim().toLowerCase();
       const category=$('dock-category').value;
       const allStyles=styleScope();
       const matches=allStyles.map(style=>({style,names:matchingNames(style,search,category)}));
       const total=matches.reduce((sum,group)=>sum+group.names.length,0);
+      dockTotalMatches=total;
       const shown=[];
-      // In All libraries mode, interleave styles so the first page isn't only Dock.
+      // Interleave the library results so all styles are visible near the top.
       for(let i=0;shown.length<dockVisible;i++){
         let any=false;
-        for(const group of matches) {
+        for(const group of matches){
           if(i>=group.names.length)continue;
           shown.push({prefix:group.style,name:group.names[i]});
           any=true;
@@ -664,13 +702,38 @@
         }
         if(!any)break;
       }
+      const existingCount=append ?
+        grid.querySelectorAll('button[data-name]').length : 0;
+      if(!append){
+        if(previewObserver)previewObserver.disconnect();
+        grid.replaceChildren();
+        // Keep the default icon as a selectable tile instead of a footer button.
+        const defaultButton=document.createElement('button');
+        defaultButton.type='button';
+        defaultButton.dataset.name='default';
+        defaultButton.dataset.prefix='default';
+        defaultButton.className='dock-item default-tile';
+        if(pendingDockChoice?.prefix==='default')
+          defaultButton.classList.add('selected');
+        else if(!dockChoice)defaultButton.classList.add('current');
+        const glyph=document.createElement('span');
+        glyph.className='dock-default-icon';
+        glyph.textContent='✦';
+        const caption=document.createElement('span');
+        caption.textContent='Default';
+        defaultButton.append(glyph,caption);
+        grid.append(defaultButton);
+      }
       const fragment=document.createDocumentFragment();
-      for(const item of shown) {
+      const fresh=shown.slice(existingCount);
+      for(const item of fresh){
         const button=document.createElement('button');
         button.type='button';
         const selected=pendingDockChoice?.prefix===item.prefix &&
           pendingDockChoice?.name===item.name;
         button.className='dock-item'+(selected?' selected':'');
+        if(dockChoice?.prefix===item.prefix && dockChoice?.name===item.name)
+          button.classList.add('current');
         button.dataset.name=item.name;
         button.dataset.prefix=item.prefix;
         const pic=document.createElement('img');
@@ -688,39 +751,41 @@
         }
         fragment.append(button);
       }
-      if(total===0) {
+      if(total===0 && !append){
         const message=document.createElement('p');
-        message.style.cssText='grid-column:1/-1;text-align:center;color:#64748b;font-size:13px;';
+        message.className='dock-empty';
+        message.style.cssText='grid-column:2/-1;text-align:center;color:#64748b;font-size:13px;';
         const loading=allStyles.some(style=>!availableCatalogue(style));
         message.textContent=loading?'Loading matching icons…':
           'No matching icons. Try another search or category.';
         fragment.append(message);
       }
-      grid.replaceChildren(fragment);
-      grid.scrollTop=previousPosition;
-      for(const button of grid.querySelectorAll('button[data-name]')){
+      const newButtons=[...fragment.querySelectorAll('button[data-name]')];
+      grid.append(fragment);
+      for(const button of newButtons){
         watchPreview(button.querySelector('img'),button,
           {prefix:button.dataset.prefix,name:button.dataset.name});
       }
-      $('dock-more').classList.toggle('hidden',shown.length>=total);
-      $('dock-use').disabled=!pendingDockChoice || (
-        dockPrefix!=='all' && pendingDockChoice.prefix!==dockPrefix);
       $('dock-license').textContent=dockPrefix==='all'
-        ? 'With Icons & Fluent Emoji: MIT · Twemoji: CC BY 4.0 (attribution).'
-        : dockPrefix==='twemoji' ? 'Twemoji: CC BY 4.0 — attribution required.'
-        : dockPrefix==='fluent-emoji-flat'
-          ? 'Microsoft Fluent Emoji: MIT licence.' : 'With Icons: MIT licence.';
+        ? 'With Icons / Fluent: MIT · Twemoji: CC BY 4.0'
+        : dockPrefix==='twemoji'?'Twemoji: CC BY 4.0'
+        : dockPrefix==='fluent-emoji-flat'?'Fluent Emoji: MIT':'With Icons: MIT';
       const loadedStyles=allStyles.filter(style=>availableCatalogue(style)).length;
       $('dock-info').textContent=shown.length+' / '+total+' icons'+
         (dockPrefix==='all'?' · All libraries':' · '+ICON_STYLES[dockPrefix].name)+
-        (loadedStyles<allStyles.length?' · Loading catalogues…':'');
+        (loadedStyles<allStyles.length?' · Loading…':'');
+      syncDockConfirm();
+      dockRendering=false;
+      // If a category has fewer tiles than the screen can hold, fetch more
+      // automatically without requiring a visible Load More control.
+      requestAnimationFrame(checkDockScroll);
     }
     function openDockPicker() {
       $('dock-dialog').classList.add('open');
       $('dock-dialog').setAttribute('aria-hidden','false');
       $('dock-library').value=dockChoice?.prefix||dockPrefix;
       dockPrefix=$('dock-library').value;
-      pendingDockChoice=dockChoice;
+      pendingDockChoice=null;
       $('dock-search').value='';
       dockVisible=96;
       // Do not focus the input or summon the iPhone keyboard on opening.
@@ -1307,7 +1372,32 @@
     }
 
     $('dock-open').addEventListener('click',openDockPicker);
-    $('dock-close').addEventListener('click',closeDockPicker);
+    $('dock-close').addEventListener('click',async()=>{
+      if(!pendingDockChoice){
+        closeDockPicker();
+        return;
+      }
+      const button=$('dock-close');
+      const selected=pendingDockChoice;
+      button.disabled=true;
+      button.textContent='…';
+      try{
+        if(selected.prefix==='default') {
+          saveDockChoice(null,null);
+        } else {
+          const data=await iconToPng(selected);
+          saveDockChoice(selected,data);
+        }
+        hidePreparedStatus();
+        pendingDockChoice=null;
+        closeDockPicker();
+      }catch(error){
+        $('dock-info').textContent='Cannot use icon: '+(error?.message||String(error));
+      }finally{
+        button.disabled=false;
+        syncDockConfirm();
+      }
+    });
     $('dock-dialog').addEventListener('click',event=>{
       if(event.target===$('dock-dialog'))closeDockPicker();
     });
@@ -1329,40 +1419,18 @@
       $('dock-grid').scrollTop=0;
       renderDockMatches();
     });
-    $('dock-more').addEventListener('click',()=>{
-      dockVisible+=96;renderDockMatches();
-    });
+    $('dock-grid').addEventListener('scroll',checkDockScroll,{passive:true});
     $('dock-grid').addEventListener('click',event=>{
       const button=event.target.closest('button[data-name]');
       if(!button||button.disabled)return;
-      pendingDockChoice={prefix:button.dataset.prefix,name:button.dataset.name};
+      const selected={prefix:button.dataset.prefix,name:button.dataset.name};
+      const same=pendingDockChoice?.prefix===selected.prefix &&
+        pendingDockChoice?.name===selected.name;
+      pendingDockChoice=same?null:selected;
       for(const other of $('dock-grid').querySelectorAll('.dock-item.selected'))
         other.classList.remove('selected');
-      button.classList.add('selected');
-      $('dock-use').disabled=false;
-    });
-    $('dock-remove').addEventListener('click',()=>{
-      saveDockChoice(null,null);
-      hidePreparedStatus();
-      closeDockPicker();
-    });
-    $('dock-use').addEventListener('click',async()=>{
-      if(!pendingDockChoice||
-         (dockPrefix!=='all' && pendingDockChoice.prefix!==dockPrefix))return;
-      const button=$('dock-use');
-      button.disabled=true;
-      button.textContent='Preparing icon…';
-      try{
-        const data=await iconToPng(pendingDockChoice);
-        saveDockChoice(pendingDockChoice,data);
-        hidePreparedStatus();
-        closeDockPicker();
-      }catch(error){
-        $('dock-info').textContent=error.message;
-      }finally{
-        button.textContent='Use selected icon';
-        button.disabled=false;
-      }
+      if(!same)button.classList.add('selected');
+      syncDockConfirm();
     });
     $('app-name').addEventListener('input',hidePreparedStatus);
     $('prepare').addEventListener('click',prepareSafariApp);
