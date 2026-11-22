@@ -289,12 +289,115 @@
     let dockChoice = null, pendingDockChoice = null, dockImage = null;
     let chosenHtml = null, chosenFileName = null, chosenFileSize = 0;
 
-    function dockUrl(prefix,name) {
+    // Only previewed icons are embedded into the viewer's local Cache Storage.
+    // The installed Home Screen app does not receive this catalogue or cache.
+    const ICON_CACHE = 'html-viewer-icons-v1';
+    const queuedPreviews = [];
+    let activePreviewRequests = 0;
+    let previewObserver = null;
+
+    function dockUrls(prefix,name) {
       const style=ICON_STYLES[prefix];
-      if (!style || !/^[a-z0-9-]+$/.test(name)) return '';
-      return style.path
-        ? WITH_ICONS_ASSETS+style.path+'/'+encodeURIComponent(name)+'.svg'
-        : DOCK_API+'/'+style.prefix+'/'+encodeURIComponent(name)+'.svg';
+      if (!style || !/^[a-z0-9-]+$/.test(name)) return [];
+      const file=encodeURIComponent(name)+'.svg';
+      if (!style.path) return [DOCK_API+'/'+style.prefix+'/'+file];
+      const urls=[
+        WITH_ICONS_ASSETS+style.path+'/'+file,
+        'https://cdn.jsdelivr.net/npm/@withicons/core@latest/dist/svg/'+style.path+'/'+file,
+        DOCK_API+'/withicons-'+style.path+'/'+file
+      ];
+      if(style.path==='soft3d') {
+        urls.splice(1,0,'https://cdn.jsdelivr.net/npm/@withicons/soft3d@latest/dist/svg/soft3d/'+file);
+      }
+      return [...new Set(urls)];
+    }
+    function iconStorageKey(prefix,name) {
+      return new URL('./_icon-cache/'+prefix+'/'+name+'.svg',location.href).href;
+    }
+    async function embeddedIconSvg(choice) {
+      if(!choice || !ICON_STYLES[choice.prefix] || !/^[a-z0-9-]+$/.test(choice.name))
+        throw new Error('Invalid icon choice.');
+      const key=iconStorageKey(choice.prefix,choice.name);
+      let cache=null;
+      if('caches' in window) {
+        try{
+          cache=await caches.open(ICON_CACHE);
+          const cached=await cache.match(key);
+          if(cached) return await cached.text();
+        }catch(error){cache=null;}
+      }
+      let failure=null;
+      for(const url of dockUrls(choice.prefix,choice.name)) {
+        try{
+          const response=await fetch(url,{mode:'cors',cache:'force-cache'});
+          if(!response.ok) {failure=Error('HTTP '+response.status);continue;}
+          const svg=await response.text();
+          if(!/<svg(?:\s|>)/i.test(svg)) continue;
+          if(cache) {
+            try{
+              await cache.put(key,new Response(svg,{headers:{'Content-Type':'image/svg+xml'}}));
+            }catch(error){console.warn('Could not locally cache icon:',error);}
+          }
+          return svg;
+        }catch(error){failure=error;}
+      }
+      throw new Error('Icon unavailable ('+choice.name+'). '+(failure?.message||''));
+    }
+    function enqueuePreview(task) {
+      queuedPreviews.push(task);
+      runPreviewQueue();
+    }
+    function runPreviewQueue() {
+      while(activePreviewRequests < 6 && queuedPreviews.length) {
+        const task=queuedPreviews.shift();
+        activePreviewRequests++;
+        Promise.resolve().then(task).catch(()=>{})
+          .finally(()=>{activePreviewRequests--;runPreviewQueue();});
+      }
+    }
+    function loadPreview(img,button,choice) {
+      enqueuePreview(async()=>{
+        if(!img.isConnected)return;
+        try{
+          const svg=await embeddedIconSvg(choice);
+          if(!img.isConnected)return;
+          const url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
+          img.onload=()=>{URL.revokeObjectURL(url);img.style.visibility='visible';};
+          img.onerror=()=>{
+            URL.revokeObjectURL(url);
+            if(img.isConnected){
+              button.classList.add('unavailable');
+              button.disabled=true;
+              button.title='This icon is not available in this style';
+            }
+          };
+          img.src=url;
+        }catch(error){
+          if(img.isConnected){
+            button.classList.add('unavailable');
+            button.disabled=true;
+            button.title='This icon is not available in this style';
+          }
+        }
+      });
+    }
+    function watchPreview(img,button,choice) {
+      if(!previewObserver) {
+        previewObserver=new IntersectionObserver(entries=>{
+          for(const entry of entries) {
+            if(!entry.isIntersecting)continue;
+            previewObserver.unobserve(entry.target);
+            const element=entry.target;
+            const holder=element.closest('button[data-name]');
+            const prefix=element.dataset.iconPrefix;
+            const name=element.dataset.iconName;
+            if(holder && prefix && name)loadPreview(element,holder,{prefix,name});
+          }
+        },{root:$('dock-grid'),rootMargin:'220px 0px'});
+      }
+      img.dataset.iconPrefix=choice.prefix;
+      img.dataset.iconName=choice.name;
+      previewObserver.observe(img);
     }
     function dockTitle(name) {
       return name.split('-').map(v=>v[0]?.toUpperCase()+v.slice(1)).join(' ');
@@ -371,6 +474,14 @@
       const catalogue=ICON_STYLES[prefix]?.prefix;
       if(!catalogue)throw new Error('Unknown icon style.');
       if(dockCatalogues.has(catalogue))return dockCatalogues.get(catalogue);
+      try{
+        const stored=JSON.parse(localStorage.getItem('hav_icon_names_'+catalogue)||'null');
+        if(Array.isArray(stored) && stored.length>=50 &&
+            stored.every(x=>typeof x==='string' && /^[a-z0-9-]+$/.test(x))){
+          dockCatalogues.set(catalogue,stored);
+          return stored;
+        }
+      }catch(error){console.warn('Cached icon catalogue unavailable:',error);}
       if(dockRequests.has(catalogue))return dockRequests.get(catalogue);
       const promise=(async()=>{
         const response=await fetch(
@@ -384,6 +495,8 @@
         const unique=[...new Set(names)].filter(n=>/^[a-z0-9-]+$/.test(n));
         if(unique.length<50)throw new Error('Icon catalogue was incomplete.');
         dockCatalogues.set(catalogue,unique.sort());
+        try{localStorage.setItem('hav_icon_names_'+catalogue,JSON.stringify(unique));}
+        catch(error){console.warn('Icon list not cached:',error);}
         return dockCatalogues.get(catalogue);
       })();
       dockRequests.set(catalogue,promise);
@@ -396,6 +509,8 @@
     }
     function renderDockMatches() {
       const grid=$('dock-grid');
+      if(previewObserver)previewObserver.disconnect();
+      const scrollPosition=grid.scrollTop;
       const search=$('dock-search').value.trim().toLowerCase().replace(/\s+/g,'-');
       const all=activeDockNames();
       const matches=all.filter(name=>name.includes(search));
@@ -408,14 +523,9 @@
         button.className='dock-item'+(selected?' selected':'');
         button.dataset.name=name;
         const pic=document.createElement('img');
-        pic.loading='lazy';
         pic.alt='';
-        pic.src=dockUrl(dockPrefix,name);
-        pic.onerror=()=>{
-          pic.style.visibility='hidden';
-          button.disabled=true;
-          button.title='Preview unavailable';
-        };
+        pic.style.visibility='hidden';
+        pic.width=60;pic.height=60;
         const label=document.createElement('span');
         label.textContent=dockTitle(name);
         button.append(pic,label);
@@ -428,17 +538,22 @@
         fragment.append(message);
       }
       grid.replaceChildren(fragment);
+      grid.scrollTop=scrollPosition;
+      // Load artwork only for on-screen previews. Viewed SVGs remain cached locally.
+      for(const button of grid.querySelectorAll('button[data-name]')) {
+        const pic=button.querySelector('img');
+        watchPreview(pic,button,{prefix:dockPrefix,name:button.dataset.name});
+      }
       $('dock-more').classList.toggle('hidden',shown.length>=matches.length);
       $('dock-license').textContent=dockPrefix==='twemoji'
-        ? 'Twemoji graphics: CC BY 4.0, attribution required (github.com/twitter/twemoji).'
+        ? 'Twemoji: CC BY 4.0 — attribution required.'
         : (dockPrefix==='fluent-emoji-flat'
           ? 'Microsoft Fluent Emoji: MIT licence.' : 'With Icons: MIT licence.');
       $('dock-use').disabled=!pendingDockChoice||pendingDockChoice.prefix!==dockPrefix;
       const gotAll=dockCatalogues.has(ICON_STYLES[dockPrefix].prefix);
       $('dock-info').textContent=gotAll
-        ? 'Showing '+shown.length+' of '+matches.length+
-          ' matching icons · '+ICON_STYLES[dockPrefix].name
-        : 'Loading '+ICON_STYLES[dockPrefix].name+' icons…';
+        ? shown.length+' / '+matches.length+' icons · '+ICON_STYLES[dockPrefix].name
+        : 'Loading '+ICON_STYLES[dockPrefix].name+'…';
     }
     function openDockPicker() {
       $('dock-dialog').classList.add('open');
@@ -470,12 +585,7 @@
     async function iconToPng(choice) {
       if(!choice||!ICON_STYLES[choice.prefix]|| !/^[a-z0-9-]+$/.test(choice.name))
         throw new Error('Invalid icon selection.');
-      let response;
-      try{response=await fetch(dockUrl(choice.prefix,choice.name),{mode:'cors'});}
-      catch(error){throw new Error('Could not retrieve the icon. Check your internet connection.');}
-      if(!response.ok)throw new Error('The selected icon could not be downloaded.');
-      const svg=await response.text();
-      if(!/<svg[\s>]/i.test(svg))throw new Error('The icon response was not SVG.');
+      const svg=await embeddedIconSvg(choice);
       const blob=new Blob([svg],{type:'image/svg+xml'});
       const url=URL.createObjectURL(blob);
       try{
@@ -1051,7 +1161,10 @@
       const button=event.target.closest('button[data-name]');
       if(!button||button.disabled)return;
       pendingDockChoice={prefix:dockPrefix,name:button.dataset.name};
-      renderDockMatches();
+      for(const other of $('dock-grid').querySelectorAll('.dock-item.selected'))
+        other.classList.remove('selected');
+      button.classList.add('selected');
+      $('dock-use').disabled=false;
     });
     $('dock-remove').addEventListener('click',()=>{
       saveDockChoice(null,null);
