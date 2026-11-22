@@ -188,6 +188,7 @@
     // Dock icons use the MIT-licensed "with icons" collection. The chooser runs
     // only in Safari setup and does not affect any installed app or stored HTML.
     const DOCK_API = 'https://api.iconify.design';
+    const DOCK_ASSETS = 'https://cdn.jsdelivr.net/npm/@withicons/core-plus@latest/dist/svg/dock/';
     const DOCK_PREFIX = 'withicons-dock';
     const DEFAULT_DOCK = [
       'camera','folder','settings','code','terminal','layout-dashboard','image',
@@ -198,7 +199,7 @@
     let dockNames = null, dockRequest = null, dockChoice = null, dockImage = null;
 
     function dockUrl(name) {
-      return DOCK_API + '/' + DOCK_PREFIX + '/' + encodeURIComponent(name) + '.svg';
+      return DOCK_ASSETS + encodeURIComponent(name) + '.svg';
     }
     function dockTitle(name) {
       return name.split('-').map(v=>v[0]?.toUpperCase() + v.slice(1)).join(' ');
