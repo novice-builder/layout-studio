@@ -166,6 +166,10 @@
     .creator-icon-row .dock-copy strong{font-size:13px}
     .creator-icon-row .dock-copy small{font-size:11px}
     .creator-icon-row .dock-thumb{width:42px;height:42px}
+    body.creator-active #creator-icon-row.creator-collapsed{display:none}
+    #creator-icon-toggle{display:none;width:100%;padding:11px 7px 6px;margin:10px 0 0;border:0;background:transparent;color:#8391a5;font-size:12px;text-align:center;cursor:pointer}
+    body.creator-active #creator-icon-toggle{display:block}
+    #creator-icon-toggle:focus-visible{outline:2px solid #2563eb;outline-offset:2px;border-radius:7px}
   </style>
   <script>
     // Keep the loader, rather than the viewer's setup interface, visible while a Home Screen app starts.
@@ -232,7 +236,7 @@
           <button class="secondary-button" id="another">Prepare a different HTML app</button>
         </div>
       </section>
-
+      <button type="button" id="creator-icon-toggle" aria-controls="creator-icon-row" aria-expanded="true">Hide Creator icon selector</button>
     </div>
   </main>
 
@@ -358,6 +362,23 @@
       tag.href=creatorDefaultIconData;
       document.head.append(tag);
       restoreCreatorIcon();
+      // Safari doesn't expose whether Add to Home Screen has completed.
+      // Keep the selection visible during initial setup, then collapse it
+      // when the Creator is reopened with a saved icon.
+      let startHidden=!!creatorIconChoice;
+      try{
+        if(localStorage.getItem('hav_creator_selector_hidden_v1')==='1')
+          startHidden=true;
+      }catch(error){}
+      setCreatorSelectorVisible(!startHidden);
+    }
+    function setCreatorSelectorVisible(visible){
+      const row=$('creator-icon-row');
+      const toggle=$('creator-icon-toggle');
+      row.classList.toggle('creator-collapsed',!visible);
+      row.setAttribute('aria-hidden',String(!visible));
+      toggle.setAttribute('aria-expanded',String(visible));
+      toggle.textContent=visible?'Hide Creator icon selector':'Show Creator icon selector';
     }
     // The icon picker is optional. It is only active in Safari setup.
     // Dock / other With Icons styles are MIT, Fluent Emoji is MIT, Twemoji is CC BY 4.0.
@@ -1678,6 +1699,15 @@
 
     $('dock-open').addEventListener('click',()=>openDockPicker('app'));
     $('creator-icon-open').addEventListener('click',()=>openDockPicker('creator'));
+    $('creator-icon-toggle').addEventListener('click',()=>{
+      if(!creatorMode||urlId)return;
+      const isHidden=$('creator-icon-row').classList.contains('creator-collapsed');
+      setCreatorSelectorVisible(isHidden);
+      try{
+        if(isHidden)localStorage.removeItem('hav_creator_selector_hidden_v1');
+        else localStorage.setItem('hav_creator_selector_hidden_v1','1');
+      }catch(error){console.warn('Creator selector setting not saved:',error);}
+    });
     $('dock-bg-mode').addEventListener('change',value=>{
       iconBgMode=value.target.value;
       updateIconBgSettings();
