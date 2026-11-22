@@ -266,9 +266,124 @@
         });
       } finally { db.close(); }
     }
-    function showHtml(html,name) {
-      // Replace the entire document, not an iframe: the saved HTML becomes the page itself.
-      // The bootstrap URL and its app ID remain unchanged for the next launch.
+    // Injected into each displayed page: document.write removes the original document's listeners.
+    function installFourFingerUpdater(appId) {
+      'use strict';
+      if (!appId || !/^[a-z0-9]{12,32}$/.test(appId)) return;
+      if (window.__htmlAppFourFingerUpdater) return;
+      window.__htmlAppFourFingerUpdater = true;
+
+      const HOLD_MS = 2000;
+      const MOVE_LIMIT = 32;
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.html,.htm,text/html';
+      input.tabIndex = -1;
+      input.setAttribute('aria-hidden','true');
+      input.style.display = 'none';
+      (document.body || document.documentElement).appendChild(input);
+
+      let tracked = null, timer = null, armed = false, saving = false;
+      function reset() {
+        if (timer !== null) clearTimeout(timer);
+        timer = null;
+        tracked = null;
+        armed = false;
+      }
+      function touchStart(event) {
+        if (saving) return;
+        if (event.touches.length !== 4) {
+          if (tracked) reset();
+          return;
+        }
+        reset();
+        tracked = new Map(Array.from(event.touches, touch =>
+          [touch.identifier, {x:touch.clientX,y:touch.clientY}]));
+        const current = tracked;
+        timer = setTimeout(() => {
+          if (tracked === current) armed = true;
+        }, HOLD_MS);
+      }
+      function touchMove(event) {
+        if (!tracked) return;
+        if (event.touches.length !== 4) { reset(); return; }
+        for (const touch of event.touches) {
+          const first = tracked.get(touch.identifier);
+          if (!first ||
+              Math.hypot(touch.clientX-first.x,touch.clientY-first.y) > MOVE_LIMIT) {
+            reset();
+            return;
+          }
+        }
+      }
+      function touchEnd() {
+        if (!tracked) return;
+        const openPicker = armed;
+        reset();
+        if (openPicker) {
+          // Invoke on actual finger release: iOS requires a user gesture for Files.
+          try { input.click(); }
+          catch (err) { alert('Could not open Files: ' + (err?.message || String(err))); }
+        }
+      }
+      window.addEventListener('touchstart',touchStart,{capture:true,passive:true});
+      window.addEventListener('touchmove',touchMove,{capture:true,passive:true});
+      window.addEventListener('touchend',touchEnd,{capture:true,passive:true});
+      window.addEventListener('touchcancel',reset,{capture:true,passive:true});
+      window.addEventListener('pagehide',reset);
+
+      input.addEventListener('change',async () => {
+        const file = input.files && input.files[0];
+        input.value = '';
+        if (!file) return;
+        if (!/\.html?$/i.test(file.name)) {
+          alert('Please choose an HTML (.html or .htm) file.');
+          return;
+        }
+        saving = true;
+        try {
+          const html = await file.text();
+          const db = await new Promise((resolve,reject) => {
+            const req = indexedDB.open('html-app-viewer-2026',1);
+            req.onupgradeneeded = () => {
+              if (!req.result.objectStoreNames.contains('apps')) {
+                req.result.createObjectStore('apps',{keyPath:'id'});
+              }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error || new Error('Could not open local app storage.'));
+          });
+          try {
+            await new Promise((resolve,reject) => {
+              const tx = db.transaction('apps','readwrite');
+              tx.objectStore('apps').put({id:appId,name:file.name,html,savedAt:Date.now()});
+              tx.oncomplete = resolve;
+              tx.onerror = () => reject(tx.error || new Error('Could not replace the HTML.'));
+              tx.onabort = () => reject(tx.error || new Error('The update was interrupted.'));
+            });
+          } finally { db.close(); }
+          location.reload();
+        } catch(err) {
+          saving = false;
+          alert('Could not replace the HTML. The previous version remains saved.\n' +
+            (err?.message || String(err)));
+        }
+      });
+    }
+
+    function showHtml(html,name,id) {
+      // Keep the original full-document rendering. The saved HTML is never altered.
+      const appId = id || urlId;
+      if (appId) {
+        const code = '(' + installFourFingerUpdater.toString() + ')(' + JSON.stringify(appId) + ');';
+        const scriptTag = '<scr' + 'ipt data-html-app-updater="1">' + code + '</scr' + 'ipt>';
+        const closing = /<\/body\s*>/gi;
+        let match, insertionPoint = -1;
+        while ((match = closing.exec(html)) !== null) insertionPoint = match.index;
+        html = insertionPoint < 0
+          ? html + scriptTag
+          : html.slice(0,insertionPoint) + scriptTag + html.slice(insertionPoint);
+      }
       document.open();
       document.write(html);
       document.close();
@@ -341,7 +456,7 @@
           history.replaceState(null,'',url.href);
           urlId = id;
         }
-        showHtml(html,file.name);
+        showHtml(html,file.name,id);
       } catch(err) {
         showError('The file could not be saved: ' + (err?.message || String(err)),true);
       } finally {
@@ -352,7 +467,7 @@
     async function bootInstalled() {
       try {
         const existing = await fetchApp(urlId);
-        if (existing?.html !== undefined) { showHtml(existing.html,existing.name); return; }
+        if (existing?.html !== undefined) { showHtml(existing.html,existing.name,existing.id); return; }
       } catch(err) { console.warn('Local app storage could not be opened:',err); }
       const staged = getStaged(urlId);
       if (staged) {
@@ -366,7 +481,7 @@
             urlId = staged.meta.id;
           }
           clearStagedCookies();
-          showHtml(html,staged.meta.name);
+          showHtml(html,staged.meta.name,staged.meta.id);
           return;
         } catch(err) {
           console.warn('HTML transfer did not complete:',err);
