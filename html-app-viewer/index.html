@@ -105,8 +105,8 @@
         HTML App Viewer
       </div>
       <div class="overline">GitHub Pages · iPhone</div>
-      <h1>Make an HTML file<br>its own web app.</h1>
-      <p class="intro">Choose an HTML file, then add this page to your Home Screen. The installed icon opens straight into your file.</p>
+      <h1>Turn an HTML file<br>into a Home Screen app.</h1>
+      <p class="intro">Choose HTML, an icon, or both. You can install the app first and select its HTML afterwards.</p>
       <section class="panel">
         <div class="file-symbol" aria-hidden="true">
           <svg width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13l-2 2 2 2m8-4 2 2-2 2m-5-5-2 6"/></svg>
@@ -128,12 +128,12 @@
         <div class="hidden" id="ready">
           <div class="status" id="ready-status"><span aria-hidden="true">✓</span><span id="ready-message">Ready to install.</span></div>
           <div class="instructions">
-            <strong>Install this HTML as an app</strong>
+            <strong>Install your prepared web app</strong>
             <ol>
               <li>Tap Safari's <b>Share</b> button.</li>
               <li>Choose <b>Add to Home Screen</b>.</li>
               <li>Leave <b>Open as Web App</b> on, then tap <b>Add</b>.</li>
-              <li>Open the new icon. It will open your HTML directly.</li>
+              <li>Open the new icon. Your HTML opens directly, or you can choose it then.</li>
             </ol>
           </div>
           <button class="secondary-button" id="another">Prepare a different HTML app</button>
@@ -146,7 +146,7 @@
 
   <section id="dock-dialog" role="dialog" aria-modal="true" aria-labelledby="dock-title" aria-hidden="true">
     <div class="dock-panel">
-      <div class="dock-head"><h2 id="dock-title">Choose Dock icon</h2><button type="button" id="dock-close" class="dock-close" aria-label="Close icon picker">×</button></div>
+      <div class="dock-head"><h2 id="dock-title">Choose App Icon</h2><button type="button" id="dock-close" class="dock-close" aria-label="Close icon picker">×</button></div>
       <select id="dock-library" class="dock-library" aria-label="Icon style or library">
         <optgroup label="With Icons — 1,000 designs per style">
           <option value="withicons-dock">Dock — glossy app icons</option>
@@ -162,7 +162,8 @@
         </optgroup>
       </select>
       <input id="dock-search" class="dock-input" type="search" placeholder="Search e.g. camera, folder, code" autocomplete="off" aria-label="Search icons">
-      <div class="dock-hint" id="dock-info">Search free Dock icons. An internet connection is required while choosing.</div>
+      <div class="dock-hint" id="dock-info">Free icon collections; internet is required to preview them.</div>
+      <div class="dock-hint" id="dock-license" style="padding-bottom:7px"></div>
       <div class="dock-grid" id="dock-grid" aria-live="polite"></div>
       <div class="dock-more-row"><button type="button" class="dock-more" id="dock-more">Load more icons</button></div>
       <div class="dock-actions">
@@ -387,6 +388,10 @@
       }
       grid.replaceChildren(fragment);
       $('dock-more').classList.toggle('hidden',shown.length>=matches.length);
+      $('dock-license').textContent=dockPrefix==='twemoji'
+        ? 'Twemoji graphics: CC BY 4.0, attribution required (github.com/twitter/twemoji).'
+        : (dockPrefix==='fluent-emoji-flat'
+          ? 'Microsoft Fluent Emoji: MIT licence.' : 'With Icons: MIT licence.');
       $('dock-use').disabled=!pendingDockChoice||pendingDockChoice.prefix!==dockPrefix;
       const gotAll=dockCatalogues.has(ICON_STYLES[dockPrefix].prefix);
       $('dock-info').textContent=gotAll
